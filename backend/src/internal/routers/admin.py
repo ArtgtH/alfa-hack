@@ -84,7 +84,7 @@ class UserAdmin(ModelView, model=User):
                 (Role.USER, "👤 Пользователь"),
             ],
             "validators": [DataRequired()],
-            "coerce": int,  # Ключевой момент! Преобразуем строку в число
+            "coerce": int,
         }
     }
 
