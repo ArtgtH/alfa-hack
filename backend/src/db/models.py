@@ -132,6 +132,7 @@ class ParsedDocument(Base):
     document_id: Mapped[int_pk] = mapped_column()
     content: Mapped[str] = mapped_column(TEXT, nullable=False)
     minio_url: Mapped[str] = mapped_column(String(200))
+    filename: Mapped[str] = mapped_column(String(200))
     user_id: Mapped[int] = mapped_column(
         ForeignKey("user.user_id", ondelete="CASCADE"), nullable=True
     )

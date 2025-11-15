@@ -136,6 +136,7 @@ class DocumentAdmin(ModelView, model=ParsedDocument):
         ParsedDocument.user_id,
         ParsedDocument.is_general,
         ParsedDocument.created_at,
+        ParsedDocument.filename,
     ]
     column_searchable_list = [ParsedDocument.minio_url, ParsedDocument.content]
     column_sortable_list = [ParsedDocument.created_at, ParsedDocument.user]
