@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     TEXT,
     Index,
+    ARRAY,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -119,11 +120,21 @@ class Message(Base):
     message_type: Mapped[MessageType] = mapped_column(IntEnum(MessageType))
     content: Mapped[str] = mapped_column(TEXT)
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
+    hidden_comments: Mapped[str] = mapped_column(TEXT, nullable=True)
+    documents_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), default=list, nullable=True
+    )
 
     chat_id: Mapped[int] = mapped_column(ForeignKey("chat.chat_id", ondelete="CASCADE"))
 
     id: Mapped[int] = synonym("message_id")
     chat: Mapped["Chat"] = relationship("Chat", back_populates="messages")
+    attached_documents: Mapped[list["ParsedDocument"]] = relationship(
+        "ParsedDocument",
+        primaryjoin="foreign(ParsedDocument.document_id) == any_(Message.documents_ids)",
+        viewonly=True,
+        uselist=True,
+    )
 
 
 class ParsedDocument(Base):
