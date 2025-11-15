@@ -61,7 +61,12 @@ class User(Base):
 
     id: Mapped[int] = synonym("user_id")
 
-    chats: Mapped[list["Chat"]] = relationship("Chat", back_populates="user")
+    chats: Mapped[list["Chat"]] = relationship(
+        "Chat",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     documents: Mapped[list["ParsedDocument"]] = relationship(
         "ParsedDocument", back_populates="user"
     )
@@ -100,7 +105,12 @@ class Chat(Base):
     id: Mapped[int] = synonym("chat_id")
     user: Mapped["User"] = relationship("User", back_populates="chats")
     prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="chats")
-    messages: Mapped[list["Message"]] = relationship("Message", back_populates="chat")
+    messages: Mapped[list["Message"]] = relationship(
+        "Message",
+        back_populates="chat",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         Index(
@@ -120,7 +130,7 @@ class Message(Base):
     message_type: Mapped[MessageType] = mapped_column(IntEnum(MessageType))
     content: Mapped[str] = mapped_column(TEXT)
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
-    hidden_comments: Mapped[str] = mapped_column(TEXT, nullable=True)
+    hidden_comments: Mapped[str | None] = mapped_column(TEXT, nullable=True)
     documents_ids: Mapped[list[int]] = mapped_column(
         ARRAY(Integer), default=list, nullable=True
     )
@@ -152,14 +162,17 @@ class ParsedDocument(Base):
     id: Mapped[int] = synonym("document_id")
     user: Mapped["User"] = relationship("User", back_populates="documents")
     chunks: Mapped[list["DocumentChunk"]] = relationship(
-        "DocumentChunk", back_populates="document"
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @hybrid_property
     def is_general(self) -> bool:
         return self.user_id is None
 
-    @is_general.expression
+    @is_general.inplace.expression
     @classmethod
     def _is_general(cls):
         return cls.user_id.is_(None)
@@ -168,7 +181,7 @@ class ParsedDocument(Base):
     def document_length(self) -> int:
         return len(self.content) if self.content else 0
 
-    @document_length.expression
+    @document_length.inplace.expression
     @classmethod
     def _length(cls):
         return func.length(cls.content)
@@ -179,7 +192,10 @@ class DocumentChunk(Base):
 
     chunk_id: Mapped[int_pk] = mapped_column()
     chunk_content: Mapped[str] = mapped_column(TEXT)
-    document_id: Mapped[int] = mapped_column(ForeignKey("parsed_document.document_id"))
+    chunk_serial: Mapped[int] = mapped_column()
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("parsed_document.document_id", ondelete="CASCADE")
+    )
 
     id: Mapped[int] = synonym("chunk_id")
     document: Mapped["ParsedDocument"] = relationship(
@@ -190,7 +206,7 @@ class DocumentChunk(Base):
     def chunk_length(self) -> int:
         return len(self.chunk_content) if self.chunk_content else 0
 
-    @chunk_length.expression
+    @chunk_length.inplace.expression
     @classmethod
     def chunk_length(cls):
         return func.length(cls.chunk_content)

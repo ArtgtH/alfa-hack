@@ -50,7 +50,6 @@ async def create_default_admin():
             )
             await db.commit()
             return
-        logger.info("No base admin for you")
     except Exception as exc:
         logger.info("Error creating base admin", exc=str(exc))
     finally:

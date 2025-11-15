@@ -139,9 +139,10 @@ class DocumentAdmin(ModelView, model=ParsedDocument):
         ParsedDocument.filename,
     ]
     column_searchable_list = [ParsedDocument.minio_url, ParsedDocument.content]
-    column_sortable_list = [ParsedDocument.created_at, ParsedDocument.user]
+    column_sortable_list = [ParsedDocument.created_at, ParsedDocument.user_id]
 
-    def _is_general_formatter(self, model, attribute):
+    @staticmethod
+    def _is_general_formatter(model, attribute):
         return "Yes" if model.is_general else "No"
 
     column_formatters = {"is_general": _is_general_formatter}
@@ -168,11 +169,18 @@ class ChatAdmin(ModelView, model=Chat):
     can_delete = False
     can_view_details = True
 
-    column_list = [Chat.id, Chat.user, Chat.prompt_id, Chat.is_active, Chat.created_at]
-    column_searchable_list = [Chat.user]
+    column_list = [
+        Chat.id,
+        Chat.user_id,
+        Chat.prompt_id,
+        Chat.is_active,
+        Chat.created_at,
+    ]
+    column_searchable_list = [Chat.user_id]
     column_sortable_list = [Chat.is_active, Chat.created_at]
 
-    def _is_active_formatter(self, model, attribute):
+    @staticmethod
+    def _is_active_formatter(model, attribute):
         return "Active" if model.is_active else "Inactive"
 
     column_formatters = {"is_active": _is_active_formatter}
@@ -193,7 +201,8 @@ class MessageAdmin(ModelView, model=Message):
     column_searchable_list = [Message.content, Message.chat_id]
     column_sortable_list = [Message.created_at, Message.chat_id]
 
-    def _message_type_formatter(self, model, attribute):
+    @staticmethod
+    def _message_type_formatter(model, attribute):
         return "Model" if model.message_type == MessageType.MODEL else "User"
 
     column_formatters = {"message_type": _message_type_formatter}

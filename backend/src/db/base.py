@@ -37,5 +37,5 @@ async def drop_tables():
 
 
 async def init_db():
-    await drop_tables()
+    # await drop_tables()
     await create_tables()

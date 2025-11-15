@@ -11,7 +11,7 @@ from config import settings
 from db.base import init_db, engine
 from db.repositories.user_repo import create_default_admin
 from internal.dependencies import Db
-from internal.routers import auth_router
+from internal.routers import auth_router, chat_router, document_router
 from internal.routers.admin import setup_admin
 from setup_logger import setup_logging
 
@@ -44,6 +44,9 @@ app = FastAPI(lifespan=lifespan)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth_router.router)
+api_router.include_router(chat_router.router)
+api_router.include_router(document_router.router)
+
 
 app.include_router(api_router)
 admin = setup_admin(app, engine)
