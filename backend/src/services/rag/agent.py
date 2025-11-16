@@ -40,6 +40,10 @@ class ScenarioDecision:
     use_query_expansion: bool | None
 
 
+class VectorSearchError(Exception):
+    """Raised when vector search cannot be completed."""
+
+
 class RagAgent:
     def __init__(
         self,
@@ -105,35 +109,45 @@ class RagAgent:
                     instructions=instructions,
                 )
             else:
+                try:
+                    if run_use_query_expansion:
+                        used_chunks, qx_debug = await self._search_with_expansion(
+                            db=db, user=user, query=query, document_ids=selected_document_ids
+                        )
+                        debug["query_expansion"] = qx_debug
+                    else:
+                        used_chunks = await self._search_chunks(
+                            db=db, user=user, query=query, document_ids=selected_document_ids
+                        )
+                    answer = await self._answer_with_chunks(
+                        query=query,
+                        history=history,
+                        chunks=used_chunks,
+                        instructions=instructions,
+                    )
+                except VectorSearchError as exc:
+                    logger.warning("vector-search-unavailable", reason=str(exc))
+                    debug["vector_search_error"] = str(exc)
+                    answer = self._vector_search_unavailable_message()
+        elif scenario == 1:
+            try:
                 if run_use_query_expansion:
                     used_chunks, qx_debug = await self._search_with_expansion(
-                        db=db, user=user, query=query, document_ids=selected_document_ids
+                        db=db, user=user, query=query, document_ids=None
                     )
                     debug["query_expansion"] = qx_debug
                 else:
-                    used_chunks = await self._search_chunks(
-                        db=db, user=user, query=query, document_ids=selected_document_ids
-                    )
+                    used_chunks = await self._search_chunks(db=db, user=user, query=query, document_ids=None)
                 answer = await self._answer_with_chunks(
                     query=query,
                     history=history,
                     chunks=used_chunks,
                     instructions=instructions,
                 )
-        elif scenario == 1:
-            if run_use_query_expansion:
-                used_chunks, qx_debug = await self._search_with_expansion(
-                    db=db, user=user, query=query, document_ids=None
-                )
-                debug["query_expansion"] = qx_debug
-            else:
-                used_chunks = await self._search_chunks(db=db, user=user, query=query, document_ids=None)
-            answer = await self._answer_with_chunks(
-                query=query,
-                history=history,
-                chunks=used_chunks,
-                instructions=instructions,
-            )
+            except VectorSearchError as exc:
+                logger.warning("vector-search-unavailable", reason=str(exc))
+                debug["vector_search_error"] = str(exc)
+                answer = self._vector_search_unavailable_message()
         elif scenario == 4:
             answer = await self._answer_general(query=query, history=history, instructions=instructions)
         else:  # scenario 3 или уточнение
@@ -252,14 +266,18 @@ class RagAgent:
     ) -> list[VectorSearchResult]:
         from services.document_service import search_document_chunks
 
-        results = await search_document_chunks(
-            db=db,
-            user=user,
-            query=query,
-            limit=self._top_k,
-            score_threshold=self._score_threshold,
-            document_ids=document_ids,
-        )
+        try:
+            results = await search_document_chunks(
+                db=db,
+                user=user,
+                query=query,
+                limit=self._top_k,
+                score_threshold=self._score_threshold,
+                document_ids=document_ids,
+            )
+        except Exception as exc:  # pragma: no cover - network/infra issues
+            logger.error("vector-search-failed", reason=str(exc))
+            raise VectorSearchError("Vector search is currently unavailable") from exc
         return list(results)
 
     async def _search_with_expansion(
@@ -283,16 +301,20 @@ class RagAgent:
 
         per_query = max(2, math.ceil(self._top_k / len(expansions)))
         results_by_query: list[list[VectorSearchResult]] = []
-        for q in expansions:
-            r = await search_document_chunks(
-                db=db,
-                user=user,
-                query=q,
-                limit=per_query,
-                score_threshold=self._score_threshold,
-                document_ids=document_ids,
-            )
-            results_by_query.append(list(r))
+        try:
+            for q in expansions:
+                r = await search_document_chunks(
+                    db=db,
+                    user=user,
+                    query=q,
+                    limit=per_query,
+                    score_threshold=self._score_threshold,
+                    document_ids=document_ids,
+                )
+                results_by_query.append(list(r))
+        except Exception as exc:  # pragma: no cover - network/infra issues
+            logger.error("vector-search-expansion-failed", reason=str(exc))
+            raise VectorSearchError("Expanded vector search is currently unavailable") from exc
 
         fused = self._rrf_merge(results_by_query=results_by_query, k=self._rrf_k, limit=self._top_k)
         debug = {"expansions": expansions, "notes": notes, "per_query": per_query, "merged": len(fused)}
@@ -478,6 +500,12 @@ class RagAgent:
         ]
         resp = await self._chat.chat(messages=messages, temperature=0.2, top_p=0.9, max_tokens=1200)
         return resp["choices"][0]["message"]["content"]
+
+    def _vector_search_unavailable_message(self) -> str:
+        return (
+            "Не удалось подключиться к базе векторного поиска документов. "
+            "Пожалуйста, повторите запрос чуть позже или сообщите администратору, если проблема сохраняется."
+        )
 
     async def _answer_general(
         self,

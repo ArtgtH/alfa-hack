@@ -179,7 +179,7 @@ class QdrantVectorStore:
             collection_name=self._collection_name,
             query_vector=list(query_embedding),
             limit=limit,
-            filter=qdrant_filter,
+            query_filter=qdrant_filter,
             with_payload=True,
             with_vectors=False,
         )

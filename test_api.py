@@ -211,6 +211,9 @@ async def test_api():
                             data = json.loads(data_str)
                             if "done" in data:
                                 break
+                            if "error" in data:
+                                print(f"\n[ERROR] {data['error']}\n")
+                                break
                             if "content" in data:
                                 content = data["content"]
                                 print(content, end="", flush=True)
@@ -260,6 +263,9 @@ async def test_api():
                                 data = json.loads(data_str)
                                 if "done" in data:
                                     break
+                                if "error" in data:
+                                    print(f"\n[ERROR] {data['error']}\n")
+                                    break
                                 if "content" in data:
                                     content = data["content"]
                                     print(content, end="", flush=True)
@@ -303,6 +309,9 @@ async def test_api():
                         try:
                             data = json.loads(data_str)
                             if "done" in data:
+                                break
+                            if "error" in data:
+                                print(f"\n[ERROR] {data['error']}\n")
                                 break
                             if "content" in data:
                                 print(data["content"], end="", flush=True)
