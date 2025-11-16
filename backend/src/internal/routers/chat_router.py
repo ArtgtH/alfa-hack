@@ -130,7 +130,7 @@ async def create_message(
                 "debug": result.debug,
             }
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-            yield "data: {"done": true}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as exc:  # pragma: no cover - defensive logging via stream
             error_payload = {"error": str(exc)}
             yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
