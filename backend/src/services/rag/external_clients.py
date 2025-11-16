@@ -65,9 +65,10 @@ class CentralBankClient:
         import xml.etree.ElementTree as ET
 
         to_date = payload.get("date") or dt.date.today().isoformat()
-        from_date = payload.get("from_date") or (
-            dt.date.fromisoformat(to_date) - dt.timedelta(days=60)
-        ).isoformat()
+        from_date = (
+            payload.get("from_date")
+            or (dt.date.fromisoformat(to_date) - dt.timedelta(days=60)).isoformat()
+        )
         envelope = self._build_envelope(
             body=f"""
             <KeyRate xmlns="http://web.cbr.ru/">
@@ -81,7 +82,9 @@ class CentralBankClient:
             "SOAPAction": "http://web.cbr.ru/KeyRate",
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(self._base_url, content=envelope, headers=headers)
+            response = await client.post(
+                self._base_url, content=envelope, headers=headers
+            )
         response.raise_for_status()
         root = ET.fromstring(response.text)
         ns = {
@@ -120,7 +123,9 @@ class CentralBankClient:
             "SOAPAction": "http://web.cbr.ru/GetCursOnDateXML",
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(self._base_url, content=envelope, headers=headers)
+            response = await client.post(
+                self._base_url, content=envelope, headers=headers
+            )
         response.raise_for_status()
         root = ET.fromstring(response.text)
         ns = {
@@ -131,7 +136,9 @@ class CentralBankClient:
             vch_code = item.findtext("web:VchCode", default="", namespaces=ns)
             if vch_code != code:
                 continue
-            value = self._to_float(item.findtext("web:Vcurs", default="", namespaces=ns))
+            value = self._to_float(
+                item.findtext("web:Vcurs", default="", namespaces=ns)
+            )
             nominal = self._to_float(
                 item.findtext("web:Vnom", default="1", namespaces=ns)
             )
@@ -257,4 +264,3 @@ class TavilyClient:
 
 
 __all__ = ["CentralBankClient", "TavilyClient"]
-

@@ -19,7 +19,7 @@ class ChatRepository(BaseRepository[Chat]):
         )
 
     async def create_new_chat(self, prompt: Prompt, user: User) -> Chat:
-        chat = Chat(prompt=prompt, user=user)
+        chat = Chat(prompt_id=prompt.prompt_id, user=user)
         await self.set_active(chat_id=chat.id, user=user)
         await self.create(chat)
 
