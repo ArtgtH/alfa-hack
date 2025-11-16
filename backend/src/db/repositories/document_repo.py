@@ -25,3 +25,10 @@ class ParsedDocumentRepository(BaseRepository[ParsedDocument]):
         )
         result = await self._db.execute(stmt)
         return result.scalars().one_or_none()
+
+    async def get_many_by_ids(self, document_ids: Sequence[int]) -> Sequence[ParsedDocument]:
+        if not document_ids:
+            return []
+        stmt = select(ParsedDocument).where(ParsedDocument.document_id.in_(document_ids))
+        result = await self._db.execute(stmt)
+        return result.scalars().all()
