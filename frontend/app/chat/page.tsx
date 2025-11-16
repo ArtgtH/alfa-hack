@@ -119,7 +119,7 @@ async function serverFetch<T>(url: string, options?: RequestInit): Promise<T> {
 export default async function Chat({
     searchParams,
 }: {
-    searchParams: { id?: string };
+    searchParams: Promise<{ id?: string }>;
 }) {
     const queryClient = new QueryClient({
         defaultOptions: {
@@ -131,8 +131,9 @@ export default async function Chat({
         },
     });
 
-    // Получаем chatId из searchParams
-    const chatId = searchParams?.id ? parseInt(searchParams.id) : null;
+    // Получаем chatId из searchParams (await для Next.js 15+)
+    const params = await searchParams;
+    const chatId = params?.id ? parseInt(params.id) : null;
 
     // Prefetch запросы
     try {
