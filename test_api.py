@@ -4,17 +4,21 @@ Test script for Finance RAG API
 Tests document upload and RAG chat functionality
 """
 
+import csv
 import json
 import os
 import sys
 from pathlib import Path
 
-import httpx
+import httpx  # type: ignore
 
 # API base URL - set via environment variable API_URL or change default
 # Example: export API_URL=http://your-hosted-api.com
 API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
 API_PREFIX = f"{API_BASE_URL}/api/v1"
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+DOCUMENT_COLLECTION = os.getenv("QDRANT_DOCUMENT_COLLECTION", "document_chunks")
+KB_COLLECTION = os.getenv("QDRANT_KB_COLLECTION", "knowledge_base_chunks")
 
 print(f"🌐 Testing API at: {API_BASE_URL}")
 print(f"📡 API Prefix: {API_PREFIX}\n")
@@ -23,6 +27,7 @@ print(f"📡 API Prefix: {API_PREFIX}\n")
 TEST_FILES_DIR = Path(__file__).parent / "test_files"
 PDF_FILE = TEST_FILES_DIR / "strafi_2024.pdf"
 DOCX_FILE = TEST_FILES_DIR / "9115.docx"
+KB_CSV_PATH = Path(__file__).parent / "knowledge_base" / "train_data.csv"
 
 
 def print_response(title: str, response: httpx.Response):
@@ -37,6 +42,61 @@ def print_response(title: str, response: httpx.Response):
     except:
         print(f"Response: {response.text[:500]}")
     print()
+
+
+def build_kb_question() -> str:
+    if not KB_CSV_PATH.exists():
+        return "Расскажи кратко о политике компании по работе с внутренними документами из базы знаний."
+    with KB_CSV_PATH.open("r", encoding="utf-8") as fp:
+        reader = csv.DictReader(fp)
+        for row in reader:
+            title = (row.get("annotation") or "").strip()
+            source_id = (row.get("id") or "kb").strip()
+            if title:
+                return f"Суммируй основные положения материала «{title}» (источник {source_id}) из внутренней базы знаний."
+    return "Расскажи кратко о политике компании по работе с внутренними документами из базы знаний."
+
+
+async def reset_document_vectors(client: httpx.AsyncClient) -> None:
+    if not QDRANT_URL:
+        print("⚠️  QDRANT_URL is not set; skipping vector reset.")
+        return
+    endpoint = f"{QDRANT_URL}/collections/{DOCUMENT_COLLECTION}"
+    print(f"🧹 Dropping Qdrant collection '{DOCUMENT_COLLECTION}' at {endpoint} ...")
+    try:
+        response = await client.delete(endpoint, timeout=30.0)
+        if response.status_code in (200, 202, 204):
+            print("✅ Document collection dropped (will be recreated on next upload).")
+        elif response.status_code == 404:
+            print("ℹ️  Document collection did not exist; nothing to drop.")
+        else:
+            print(f"⚠️  Failed to drop collection: {response.status_code} {response.text[:200]}")
+    except Exception as exc:
+        print(f"⚠️  Could not contact Qdrant at {endpoint}: {exc}")
+
+
+async def purge_user_documents(client: httpx.AsyncClient, headers: dict[str, str]) -> None:
+    print("🧽 Purging existing user documents...")
+    try:
+        docs_response = await client.get(f"{API_PREFIX}/document", headers=headers)
+        if docs_response.status_code != 200:
+            print(f"⚠️  Cannot list documents: {docs_response.status_code}")
+            return
+        docs = docs_response.json()
+        if not docs:
+            print("ℹ️  No documents to delete.")
+            return
+        for doc in docs:
+            doc_id = doc.get("document_id")
+            if not doc_id:
+                continue
+            delete_resp = await client.delete(
+                f"{API_PREFIX}/document/{doc_id}", headers=headers
+            )
+            status = "✅" if delete_resp.status_code in (200, 204) else "⚠️"
+            print(f"{status} Deleted document {doc_id} (status {delete_resp.status_code})")
+    except Exception as exc:
+        print(f"⚠️  Failed to purge documents: {exc}")
 
 
 async def test_api():
@@ -92,6 +152,12 @@ async def test_api():
         token_data = login_response.json()
         token = token_data.get("access_token")
         headers = {"Authorization": f"Bearer {token}"}
+        
+        # Reset Qdrant document vectors
+        await reset_document_vectors(client)
+
+        # Remove existing docs from user account before uploading new ones
+        await purge_user_documents(client, headers)
         
         # Step 3: Upload PDF document
         print("📄 Step 3: Uploading PDF document...")
@@ -184,146 +250,76 @@ async def test_api():
                 print("❌ Cannot get chats. Cannot test RAG.")
                 return
         
-        # Step 7: Test RAG with general question (no documents selected)
-        print("🤖 Step 7: Testing RAG - General question (no documents)...")
-        message_data = {
-            "content": "Привет! Расскажи о себе и своих возможностях.",
-            "documents_ids": []
-        }
-        
-        async with client.stream(
-            "POST",
-            f"{API_PREFIX}/chat/{chat_id}/message",
-            headers=headers,
-            json=message_data
-        ) as response:
+        async def send_message(title: str, content: str, documents: list[int] | None):
+            payload = {"content": content, "documents_ids": documents or []}
+            response = await client.post(
+                f"{API_PREFIX}/chat/{chat_id}/message", headers=headers, json=payload
+            )
             print(f"\n{'='*60}")
-            print("RAG Response (General Question)")
+            print(title)
             print(f"{'='*60}")
             print(f"Status: {response.status_code}")
-            
             if response.status_code == 200:
-                full_response = ""
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # Remove "data: " prefix
-                        try:
-                            data = json.loads(data_str)
-                            if "done" in data:
-                                break
-                            if "error" in data:
-                                print(f"\n[ERROR] {data['error']}\n")
-                                break
-                            if "content" in data:
-                                content = data["content"]
-                                print(content, end="", flush=True)
-                                full_response += content
-                            if "scenario" in data:
-                                print(f"\n\n[Scenario: {data['scenario']}]")
-                            if "citations" in data:
-                                print(f"\n[Citations: {len(data.get('citations', []))} found]")
-                        except json.JSONDecodeError:
-                            pass
-                print("\n")
+                data = response.json()
+                print(json.dumps(data, indent=2, ensure_ascii=False))
             else:
-                error_text = await response.aread()
-                print(f"Error: {error_text.decode()}")
-        
-        # Step 8: Test RAG with document-specific question (with documents selected)
+                print(response.text)
+
+        print("🤖 Step 7: Testing RAG - General question (no documents)...")
+        await send_message(
+            "RAG Response (General Question)",
+            "Привет! Расскажи о себе и своих возможностях.",
+            [],
+        )
+
         if pdf_doc_id or docx_doc_id:
             print("\n🤖 Step 8: Testing RAG - Document-specific question...")
-            selected_docs = []
-            if pdf_doc_id:
-                selected_docs.append(pdf_doc_id)
-            if docx_doc_id:
-                selected_docs.append(docx_doc_id)
-            
-            message_data = {
-                "content": "Что содержится в этих документах? Кратко опиши основную информацию.",
-                "documents_ids": selected_docs
-            }
-            
-            async with client.stream(
-                "POST",
-                f"{API_PREFIX}/chat/{chat_id}/message",
-                headers=headers,
-                json=message_data
-            ) as response:
-                print(f"\n{'='*60}")
-                print("RAG Response (Document Question)")
-                print(f"{'='*60}")
-                print(f"Status: {response.status_code}")
-                
-                if response.status_code == 200:
-                    full_response = ""
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data_str = line[6:]
-                            try:
-                                data = json.loads(data_str)
-                                if "done" in data:
-                                    break
-                                if "error" in data:
-                                    print(f"\n[ERROR] {data['error']}\n")
-                                    break
-                                if "content" in data:
-                                    content = data["content"]
-                                    print(content, end="", flush=True)
-                                    full_response += content
-                                if "scenario" in data:
-                                    print(f"\n\n[Scenario: {data['scenario']}]")
-                                if "citations" in data:
-                                    citations = data.get("citations", [])
-                                    print(f"\n\n[Citations: {len(citations)} found]")
-                                    for i, cit in enumerate(citations[:3], 1):
-                                        print(f"  {i}. {cit.get('filename', 'Unknown')} (score: {cit.get('score', 0):.3f})")
-                            except json.JSONDecodeError:
-                                pass
-                    print("\n")
-                else:
-                    error_text = await response.aread()
-                    print(f"Error: {error_text.decode()}")
-        
-        # Step 9: Test search query (finding documents)
+            selected_docs = [doc_id for doc_id in [pdf_doc_id, docx_doc_id] if doc_id]
+            await send_message(
+                "RAG Response (Document Question)",
+                "Что содержится в этих документах? Кратко опиши основную информацию.",
+                selected_docs,
+            )
+
         print("\n🔍 Step 9: Testing RAG - Search for documents...")
-        message_data = {
-            "content": "Найди документы, связанные с отчетностью или финансовыми данными.",
-            "documents_ids": []
-        }
+        await send_message(
+            "RAG Response (Search Query)",
+            "Найди документы, связанные со штрафами и наказаниями",
+            [],
+        )
+
+        kb_question = build_kb_question()
+        print("\n📚 Step 10: Testing knowledge-base fallback...")
+        await send_message(
+            "RAG Response (KB Question)",
+            kb_question,
+            [],
+        )
+
+        print("\n❓ Step 11: Testing clarification flow...")
+        await send_message(
+            "RAG Response (Clarification)",
+            "Сделай что-нибудь полезное",
+            [],
+        )
+
+        print("\n🏦 Step 12: Testing CBR data tool...")
+        await send_message(
+            "RAG Response (CBR key rate)",
+            "Подскажи текущую ключевую ставку ЦБ РФ и дату её установления.",
+            [],
+        )
+
+        print("\n📰 Step 13: Testing Tavily finance news tool...")
+        await send_message(
+            "RAG Response (Finance News)",
+            "Расскажи последние финансовые новости о ключевой ставке ЦБ РФ за последние недели.",
+            [],
+        )
         
-        async with client.stream(
-            "POST",
-            f"{API_PREFIX}/chat/{chat_id}/message",
-            headers=headers,
-            json=message_data
-        ) as response:
-            print(f"\n{'='*60}")
-            print("RAG Response (Search Query)")
-            print(f"{'='*60}")
-            print(f"Status: {response.status_code}")
-            
-            if response.status_code == 200:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        try:
-                            data = json.loads(data_str)
-                            if "done" in data:
-                                break
-                            if "error" in data:
-                                print(f"\n[ERROR] {data['error']}\n")
-                                break
-                            if "content" in data:
-                                print(data["content"], end="", flush=True)
-                            if "scenario" in data:
-                                print(f"\n\n[Scenario: {data['scenario']}]")
-                        except json.JSONDecodeError:
-                            pass
-                print("\n")
-        
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("✅ Testing completed!")
-        print("="*60)
+        print("=" * 60)
 
 
 if __name__ == "__main__":

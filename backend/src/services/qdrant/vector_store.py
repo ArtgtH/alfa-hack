@@ -85,6 +85,9 @@ class QdrantVectorStore:
                 else None,
                 "document_metadata": document_metadata or {},
                 "chunk_metadata": chunk_record.metadata or {},
+                "chunk_content": getattr(
+                    getattr(chunk_record, "chunk", None), "chunk_content", None
+                ),
             }
 
             points.append(
@@ -152,7 +155,49 @@ class QdrantVectorStore:
                     collection=self._collection_name,
                     stored_size=current_size,
                     required_size=vector_size,
+                    action="recreate_collection",
                 )
+                await self._client.recreate_collection(
+                    collection_name=self._collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size, distance=Distance.COSINE
+                    ),
+                )
+                logger.info(
+                    "qdrant-collection-recreated",
+                    collection=self._collection_name,
+                    vector_size=vector_size,
+                )
+
+    async def drop_collection(self) -> None:
+        if not self._client:
+            return
+
+        try:
+            await self._client.delete_collection(collection_name=self._collection_name)
+            logger.info(
+                "qdrant-collection-dropped",
+                collection=self._collection_name,
+            )
+        except UnexpectedResponse as exc:
+            status = getattr(exc, "status_code", None)
+            if status == 404:
+                logger.info(
+                    "qdrant-collection-drop-missed",
+                    collection=self._collection_name,
+                    reason="collection not found",
+                )
+            else:
+                raise
+        except Exception as exc:
+            if "not found" in str(exc).lower():
+                logger.info(
+                    "qdrant-collection-drop-missed",
+                    collection=self._collection_name,
+                    reason="collection not found",
+                )
+            else:
+                raise
 
     async def search_document_embeddings(
         self,
@@ -162,6 +207,7 @@ class QdrantVectorStore:
         limit: int,
         score_threshold: float | None = None,
         document_ids: Sequence[int] | None = None,
+        extra_filter_conditions: Sequence[FieldCondition] | None = None,
     ):
         if not self.is_enabled or not self._client:
             return []
@@ -177,6 +223,9 @@ class QdrantVectorStore:
                     match=MatchAny(any=[int(doc_id) for doc_id in document_ids]),
                 )
             )
+
+        if extra_filter_conditions:
+            filter_conditions.extend(extra_filter_conditions)
 
         qdrant_filter = Filter(must=filter_conditions)
 

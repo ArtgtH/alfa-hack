@@ -43,7 +43,10 @@ async def upload_document(
     try:
         saved_doc = await process_document(file, db, user)
     except DocumentExistsError:
-        raise HTTPException(status_code=HTTP_409_CONFLICT, detail="Document not found")
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail="Document already exists for this user",
+        )
 
     return DocumentResponse.model_validate(saved_doc)
 
