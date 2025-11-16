@@ -19,6 +19,7 @@ sqladmin = "^0.21.0"
 itsdangerous = "^2.2.0"
 langchain-text-splitters = "*"
 megaparse = "*"
+pdfminer-six = "20221105"  # Pin to version compatible with unstructured
 httpx = "^0.27.2"
 qdrant-client = "^1.9.1"
 minio = "^7.2.7"

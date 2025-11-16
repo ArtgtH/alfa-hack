@@ -31,9 +31,16 @@ class DocumentUploadPipeline:
         vector_manager: DocumentVectorManager | None = None,
     ) -> None:
         self._max_file_size_bytes = max_file_size_bytes
-        self._parser = parser or MegaParseClient()
+        self._parser_instance = parser  # Store parser instance, but don't create it yet
         self._chunk_splitter = chunk_splitter or ChunkSplitter()
         self._vector_manager = vector_manager or DocumentVectorManager()
+    
+    @property
+    def _parser(self) -> MegaParseClient:
+        """Lazy initialization of parser to avoid import errors at module level"""
+        if self._parser_instance is None:
+            self._parser_instance = MegaParseClient()
+        return self._parser_instance
 
     async def handle(self, file: UploadFile, db: AsyncSession, user: User) -> ParsedDocument:
         filename = file.filename or "uploaded_document"

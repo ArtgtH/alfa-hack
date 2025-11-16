@@ -15,8 +15,18 @@ logger = structlog.get_logger(__name__)
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
-document_pipeline = DocumentUploadPipeline(max_file_size_bytes=MAX_FILE_SIZE_BYTES)
+# Lazy initialization - pipeline will be created when needed
+# This avoids import errors if megaparse dependencies have conflicts
+_document_pipeline: DocumentUploadPipeline | None = None
 vector_manager = DocumentVectorManager()
+
+
+def _get_document_pipeline() -> DocumentUploadPipeline:
+    """Get or create document pipeline with lazy initialization"""
+    global _document_pipeline
+    if _document_pipeline is None:
+        _document_pipeline = DocumentUploadPipeline(max_file_size_bytes=MAX_FILE_SIZE_BYTES)
+    return _document_pipeline
 
 
 async def get_chunks_for_document(
@@ -34,7 +44,8 @@ async def get_chunks_for_document(
 async def process_document(
     file: UploadFile, db: AsyncSession, user: User
 ) -> ParsedDocument:
-    return await document_pipeline.handle(file=file, db=db, user=user)
+    pipeline = _get_document_pipeline()
+    return await pipeline.handle(file=file, db=db, user=user)
 
 
 async def search_document_chunks(

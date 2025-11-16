@@ -11,10 +11,23 @@ class MegaParseClient:
             from megaparse import MarkdownParser
         except ImportError as exc:
             raise RuntimeError(
-                "megaparse package is required to parse uploaded documents"
+                "megaparse package is required to parse uploaded documents. "
+                "Please ensure megaparse and its dependencies are properly installed."
+            ) from exc
+        except Exception as exc:
+            # Handle other import errors (e.g., dependency conflicts)
+            raise RuntimeError(
+                f"Failed to initialize megaparse parser: {exc}. "
+                "This may be due to dependency version conflicts. "
+                "Please check pdfminer and unstructured library versions."
             ) from exc
 
-        self._parser = MarkdownParser()
+        try:
+            self._parser = MarkdownParser()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to create MarkdownParser instance: {exc}"
+            ) from exc
 
     def parse(
         self, *, content_bytes: bytes, filename: str | None = None
