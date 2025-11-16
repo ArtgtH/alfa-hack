@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_400_BAD_REQUEST, HTTP_409_CONFLICT
 
 from db.models import ParsedDocument
 from db.repositories.document_repo import ParsedDocumentRepository
 from internal.dependencies import Db, CtxUser
 from internal.schemas.documents import DocumentResponse, ExpandedDocumentResponse
+from services.document_processing.pipeline import DocumentExistsError
 from services.document_service import process_document
 
 
@@ -39,7 +40,10 @@ async def upload_document(
             status_code=HTTP_400_BAD_REQUEST, detail="File must have a name"
         )
 
-    saved_doc = await process_document(file, db, user)
+    try:
+        saved_doc = await process_document(file, db, user)
+    except DocumentExistsError:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail="Document not found")
 
     return DocumentResponse.model_validate(saved_doc)
 

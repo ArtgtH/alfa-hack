@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator
 import structlog
 from fastapi import APIRouter, FastAPI
 from sqlalchemy import text
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -46,6 +47,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, Any]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 api_router = APIRouter(prefix="/api/v1")

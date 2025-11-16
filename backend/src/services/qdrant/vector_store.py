@@ -80,7 +80,9 @@ class QdrantVectorStore:
                 "user_id": document.user_id,
                 "filename": document.filename,
                 "minio_url": document.minio_url,
-                "document_created_at": getattr(document, "created_at", None).isoformat() if getattr(document, "created_at", None) else None,
+                "document_created_at": getattr(document, "created_at", None).isoformat()
+                if getattr(document, "created_at", None)
+                else None,
                 "document_metadata": document_metadata or {},
                 "chunk_metadata": chunk_record.metadata or {},
             }
@@ -115,7 +117,10 @@ class QdrantVectorStore:
         try:
             collection_info = await self._client.get_collection(self._collection_name)
         except UnexpectedResponse as exc:
-            if getattr(exc, "status_code", None) != 404 and "not found" not in str(exc).lower():
+            if (
+                getattr(exc, "status_code", None) != 404
+                and "not found" not in str(exc).lower()
+            ):
                 raise
             await self._client.create_collection(
                 collection_name=self._collection_name,
@@ -188,6 +193,8 @@ class QdrantVectorStore:
             return results
 
         filtered_results = [
-            point for point in results if getattr(point, "score", 0.0) >= score_threshold
+            point
+            for point in results
+            if getattr(point, "score", 0.0) >= score_threshold
         ]
         return filtered_results

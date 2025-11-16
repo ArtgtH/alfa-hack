@@ -12,7 +12,6 @@ from uuid import uuid4
 
 import structlog
 from minio import Minio
-from minio.error import S3Error
 
 from config import settings
 
@@ -63,7 +62,9 @@ class MinioStorageClient:
 
     @classmethod
     def from_settings(cls) -> "MinioStorageClient":
-        endpoint, secure = _parse_endpoint(settings.MINIO_ENDPOINT, settings.MINIO_USE_SSL)
+        endpoint, secure = _parse_endpoint(
+            settings.MINIO_ENDPOINT, settings.MINIO_USE_SSL
+        )
         public_endpoint = (
             settings.MINIO_PUBLIC_ENDPOINT
             or settings.MINIO_ENDPOINT
@@ -93,7 +94,11 @@ class MinioStorageClient:
         await self._ensure_bucket()
 
         object_name = self._build_object_name(filename=filename, user_id=user_id)
-        mtype = content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        mtype = (
+            content_type
+            or mimetypes.guess_type(filename)[0]
+            or "application/octet-stream"
+        )
         meta = metadata or {}
         if user_id is not None:
             meta.setdefault("user-id", str(user_id))
@@ -148,11 +153,15 @@ class MinioStorageClient:
         extension = PurePosixPath(filename).suffix.lower()
         sanitized = extension if extension else ""
         user_segment = f"user-{user_id}" if user_id is not None else "common"
-        object_path = PurePosixPath(user_segment) / timestamp / f"{unique_id}{sanitized}"
+        object_path = (
+            PurePosixPath(user_segment) / timestamp / f"{unique_id}{sanitized}"
+        )
         return str(object_path)
 
     def _build_public_url(self, object_name: str) -> str:
-        base = self._config.public_endpoint.strip() if self._config.public_endpoint else ""
+        base = (
+            self._config.public_endpoint.strip() if self._config.public_endpoint else ""
+        )
         if not base.startswith("http"):
             scheme = "https" if self._config.secure else "http"
             base = f"{scheme}://{base}"

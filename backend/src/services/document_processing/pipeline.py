@@ -21,6 +21,9 @@ from .vector_manager import ChunkRecord, DocumentVectorManager
 logger = structlog.get_logger(__name__)
 
 
+class DocumentExistsError(Exception): ...
+
+
 class DocumentUploadPipeline:
     def __init__(
         self,
@@ -34,7 +37,7 @@ class DocumentUploadPipeline:
         self._parser_instance = parser  # Store parser instance, but don't create it yet
         self._chunk_splitter = chunk_splitter or ChunkSplitter()
         self._vector_manager = vector_manager or DocumentVectorManager()
-    
+
     @property
     def _parser(self) -> DocumentParser:
         """Lazy initialization of parser to avoid import errors at module level"""
@@ -42,8 +45,15 @@ class DocumentUploadPipeline:
             self._parser_instance = DocumentParser()
         return self._parser_instance
 
-    async def handle(self, file: UploadFile, db: AsyncSession, user: User) -> ParsedDocument:
+    async def handle(
+        self, file: UploadFile, db: AsyncSession, user: User
+    ) -> ParsedDocument:
         filename = file.filename or "uploaded_document"
+
+        doc_repo = ParsedDocumentRepository(db)
+        if await doc_repo.check_document_exists(filename, user):
+            raise DocumentExistsError
+
         content_bytes = await file.read()
         self._ensure_file_size(content_bytes)
         minio_url = await upload_to_s3(content_bytes, filename, user)
@@ -54,7 +64,6 @@ class DocumentUploadPipeline:
         )
         chunk_payloads = self._chunk_splitter.split(markdown_doc)
 
-        doc_repo = ParsedDocumentRepository(db)
         chunk_repo = DocumentChunkRepository(db)
 
         document = ParsedDocument(
@@ -154,7 +163,9 @@ class DocumentUploadPipeline:
                 document=document,
             )
             await chunk_repo.create(doc_chunk)
-            stored_chunks.append(ChunkRecord(chunk=doc_chunk, metadata=payload.metadata))
+            stored_chunks.append(
+                ChunkRecord(chunk=doc_chunk, metadata=payload.metadata)
+            )
 
         return stored_chunks
 

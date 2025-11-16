@@ -47,4 +47,3 @@ async def seed_prompts(session: AsyncSession) -> list[Prompt]:
         prompt = await repo.upsert_prompt(title=title, text=content, params=params)
         seeded.append(prompt)
     return seeded
-

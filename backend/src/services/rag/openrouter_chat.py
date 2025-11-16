@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 import httpx
 
@@ -38,7 +38,9 @@ class OpenRouterChatClient:
             base_url=getattr(settings, "OPENROUTER_CHAT_URL", None),
             referer=getattr(settings, "OPENROUTER_HTTP_REFERER", None),
             title=getattr(settings, "OPENROUTER_APP_TITLE", None) or settings.APP_NAME,
-            timeout_seconds=float(getattr(settings, "OPENROUTER_CHAT_TIMEOUT_SECONDS", 60.0)),
+            timeout_seconds=float(
+                getattr(settings, "OPENROUTER_CHAT_TIMEOUT_SECONDS", 60.0)
+            ),
         )
 
     async def chat(

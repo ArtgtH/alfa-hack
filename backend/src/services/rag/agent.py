@@ -77,13 +77,17 @@ class RagAgent:
         answer_instructions: str | None = None,
     ) -> AgentResult:
         history = await self._load_chat_history(db, chat_id) if chat_id else []
-        decision = await self._choose_scenario(query=query, history=history, selected_ids=selected_document_ids)
+        decision = await self._choose_scenario(
+            query=query, history=history, selected_ids=selected_document_ids
+        )
         scenario = decision.scenario
 
         used_chunks: list[VectorSearchResult] = []
         answer = ""
         run_use_query_expansion = (
-            decision.use_query_expansion if decision.use_query_expansion is not None else self._use_query_expansion
+            decision.use_query_expansion
+            if decision.use_query_expansion is not None
+            else self._use_query_expansion
         )
         debug: dict[str, Any] = {
             "history_len": len(history),
@@ -112,12 +116,18 @@ class RagAgent:
                 try:
                     if run_use_query_expansion:
                         used_chunks, qx_debug = await self._search_with_expansion(
-                            db=db, user=user, query=query, document_ids=selected_document_ids
+                            db=db,
+                            user=user,
+                            query=query,
+                            document_ids=selected_document_ids,
                         )
                         debug["query_expansion"] = qx_debug
                     else:
                         used_chunks = await self._search_chunks(
-                            db=db, user=user, query=query, document_ids=selected_document_ids
+                            db=db,
+                            user=user,
+                            query=query,
+                            document_ids=selected_document_ids,
                         )
                     answer = await self._answer_with_chunks(
                         query=query,
@@ -137,7 +147,9 @@ class RagAgent:
                     )
                     debug["query_expansion"] = qx_debug
                 else:
-                    used_chunks = await self._search_chunks(db=db, user=user, query=query, document_ids=None)
+                    used_chunks = await self._search_chunks(
+                        db=db, user=user, query=query, document_ids=None
+                    )
                 answer = await self._answer_with_chunks(
                     query=query,
                     history=history,
@@ -149,14 +161,24 @@ class RagAgent:
                 debug["vector_search_error"] = str(exc)
                 answer = self._vector_search_unavailable_message()
         elif scenario == 4:
-            answer = await self._answer_general(query=query, history=history, instructions=instructions)
+            answer = await self._answer_general(
+                query=query, history=history, instructions=instructions
+            )
         else:  # scenario 3 или уточнение
-            answer = await self._ask_clarification(query=query, history=history, clarifications=decision.clarifications)
+            answer = await self._ask_clarification(
+                query=query, history=history, clarifications=decision.clarifications
+            )
 
-        return AgentResult(answer=answer, used_chunks=used_chunks, scenario=scenario, debug=debug)
+        return AgentResult(
+            answer=answer, used_chunks=used_chunks, scenario=scenario, debug=debug
+        )
 
-    async def _load_chat_history(self, db: AsyncSession, chat_id: int) -> list[dict[str, str]]:
-        msgs = await MessageRepository(db).get_last_for_chat(chat_id=chat_id, limit=self._messages_limit)
+    async def _load_chat_history(
+        self, db: AsyncSession, chat_id: int
+    ) -> list[dict[str, str]]:
+        msgs = await MessageRepository(db).get_last_for_chat(
+            chat_id=chat_id, limit=self._messages_limit
+        )
         history: list[dict[str, str]] = []
         for m in msgs:
             role = "assistant" if m.message_type.name == "MODEL" else "user"
@@ -176,7 +198,9 @@ class RagAgent:
         system_prompt = (base / "system_ru.txt").read_text(encoding="utf-8")
         orchestrator_prompt = (base / "orchestrator_ru.txt").read_text(encoding="utf-8")
 
-        rule_guess = self._rule_guess_scenario(query=query, history=history, selected_ids=selected_ids)
+        rule_guess = self._rule_guess_scenario(
+            query=query, history=history, selected_ids=selected_ids
+        )
         sys_msg = {"role": "system", "content": system_prompt}
         orch_msg = {"role": "system", "content": orchestrator_prompt}
         user_msg = {
@@ -195,7 +219,11 @@ class RagAgent:
 
         messages = [sys_msg, orch_msg, *history[-5:], user_msg]
         resp = await self._chat.chat(
-            messages=messages, temperature=0.0, top_p=1.0, max_tokens=400, response_format={"type": "json_object"}
+            messages=messages,
+            temperature=0.0,
+            top_p=1.0,
+            max_tokens=400,
+            response_format={"type": "json_object"},
         )
         try:
             content = resp["choices"][0]["message"]["content"]
@@ -203,7 +231,9 @@ class RagAgent:
             llm_scenario = int(parsed.get("scenario", 3))
             confidence = float(parsed.get("confidence", 0.5))
             scenario = llm_scenario if confidence >= 0.6 else rule_guess
-            clarifications = [str(item) for item in parsed.get("clarifications", [])][:3]
+            clarifications = [str(item) for item in parsed.get("clarifications", [])][
+                :3
+            ]
             use_qe = parsed.get("use_query_expansion")
             if isinstance(use_qe, str):
                 use_qe = use_qe.lower() in {"true", "1", "yes"}
@@ -227,7 +257,11 @@ class RagAgent:
         return decision
 
     def _rule_guess_scenario(
-        self, *, query: str, history: list[dict[str, str]], selected_ids: Sequence[int] | None
+        self,
+        *,
+        query: str,
+        history: list[dict[str, str]],
+        selected_ids: Sequence[int] | None,
     ) -> int:
         if selected_ids and len(selected_ids) > 0:
             return 2
@@ -314,10 +348,19 @@ class RagAgent:
                 results_by_query.append(list(r))
         except Exception as exc:  # pragma: no cover - network/infra issues
             logger.error("vector-search-expansion-failed", reason=str(exc))
-            raise VectorSearchError("Expanded vector search is currently unavailable") from exc
+            raise VectorSearchError(
+                "Expanded vector search is currently unavailable"
+            ) from exc
 
-        fused = self._rrf_merge(results_by_query=results_by_query, k=self._rrf_k, limit=self._top_k)
-        debug = {"expansions": expansions, "notes": notes, "per_query": per_query, "merged": len(fused)}
+        fused = self._rrf_merge(
+            results_by_query=results_by_query, k=self._rrf_k, limit=self._top_k
+        )
+        debug = {
+            "expansions": expansions,
+            "notes": notes,
+            "per_query": per_query,
+            "merged": len(fused),
+        }
         return fused, debug
 
     async def _expand_query(self, *, query: str) -> tuple[list[str], list[str], str]:
@@ -330,7 +373,10 @@ class RagAgent:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "system", "content": fusion_prompt},
-            {"role": "user", "content": json.dumps({"query": query}, ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps({"query": query}, ensure_ascii=False),
+            },
         ]
         resp = await self._chat.chat(
             messages=messages,
@@ -344,7 +390,9 @@ class RagAgent:
             parsed = json.loads(content)
             refinements = list(parsed.get("refinements", []))
             subqueries = list(parsed.get("subqueries", []))
-            notes = str(parsed.get("notes", "")) if parsed.get("notes") is not None else ""
+            notes = (
+                str(parsed.get("notes", "")) if parsed.get("notes") is not None else ""
+            )
             return refinements, subqueries, notes
         except Exception:
             return [], [], ""
@@ -386,11 +434,15 @@ class RagAgent:
                 score_sum += 1.0 / (k + rank)
                 fused_scores[cid] = score_sum
                 # keep the best scoring instance to carry payload and text
-                if cid not in best_result_for_chunk or res.score > best_result_for_chunk[cid].score:
+                if (
+                    cid not in best_result_for_chunk
+                    or res.score > best_result_for_chunk[cid].score
+                ):
                     best_result_for_chunk[cid] = res
 
         fused = [
-            (cid, score, best_result_for_chunk[cid]) for cid, score in fused_scores.items()
+            (cid, score, best_result_for_chunk[cid])
+            for cid, score in fused_scores.items()
         ]
         fused.sort(key=lambda x: x[1], reverse=True)
         top_results: list[VectorSearchResult] = []
@@ -422,9 +474,13 @@ class RagAgent:
         for idx, d in enumerate(documents, start=1):
             name = d.filename or f"Документ {d.document_id}"
             url = d.minio_url or "н/д"
-            created = d.created_at.isoformat() if getattr(d, "created_at", None) else "н/д"
+            created = (
+                d.created_at.isoformat() if getattr(d, "created_at", None) else "н/д"
+            )
             content = d.content or ""
-            link_display = f"[Открыть документ]({url})" if url != "н/д" else "ссылка недоступна"
+            link_display = (
+                f"[Открыть документ]({url})" if url != "н/д" else "ссылка недоступна"
+            )
             snippet = (
                 f"### Документ {idx}: {name} (ID {d.document_id})\n"
                 f"- Ссылка: {link_display}\n"
@@ -447,7 +503,9 @@ class RagAgent:
             *history[-self._messages_limit :],
             {"role": "user", "content": user_content},
         ]
-        resp = await self._chat.chat(messages=messages, temperature=0.2, top_p=0.9, max_tokens=1500)
+        resp = await self._chat.chat(
+            messages=messages, temperature=0.2, top_p=0.9, max_tokens=1500
+        )
         return resp["choices"][0]["message"]["content"]
 
     async def _answer_with_chunks(
@@ -466,7 +524,10 @@ class RagAgent:
         snippets: list[str] = []
         for idx, r in enumerate(chunks, start=1):
             payload = r.payload or {}
-            title = payload.get("filename") or f"Документ {payload.get('document_id', 'н/д')}"
+            title = (
+                payload.get("filename")
+                or f"Документ {payload.get('document_id', 'н/д')}"
+            )
             doc_id = payload.get("document_id")
             serial = r.chunk.chunk_serial
             url = (
@@ -475,7 +536,9 @@ class RagAgent:
                 or "н/д"
             )
             snippet_text = r.chunk.chunk_content.strip()
-            link_display = f"[{title}]({url})" if url != "н/д" else f"{title} (ссылка недоступна)"
+            link_display = (
+                f"[{title}]({url})" if url != "н/д" else f"{title} (ссылка недоступна)"
+            )
             snippet_block = (
                 f"### Источник {idx}: {title} (Документ {doc_id}, чанк {serial})"
                 f"\n- Ссылка: {link_display}"
@@ -498,7 +561,9 @@ class RagAgent:
             *history[-self._messages_limit :],
             {"role": "user", "content": user_content},
         ]
-        resp = await self._chat.chat(messages=messages, temperature=0.2, top_p=0.9, max_tokens=1200)
+        resp = await self._chat.chat(
+            messages=messages, temperature=0.2, top_p=0.9, max_tokens=1200
+        )
         return resp["choices"][0]["message"]["content"]
 
     def _vector_search_unavailable_message(self) -> str:
@@ -530,7 +595,9 @@ class RagAgent:
             *history[-self._messages_limit :],
             {"role": "user", "content": user_content},
         ]
-        resp = await self._chat.chat(messages=messages, temperature=0.3, top_p=0.9, max_tokens=900)
+        resp = await self._chat.chat(
+            messages=messages, temperature=0.3, top_p=0.9, max_tokens=900
+        )
         return resp["choices"][0]["message"]["content"]
 
     async def _ask_clarification(
@@ -548,7 +615,9 @@ class RagAgent:
         extra = ""
         if clarifications:
             bullets = "\n".join(f"- {c}" for c in clarifications)
-            extra = "Дополнительно попроси уточнить следующие моменты:\n" + bullets + "\n\n"
+            extra = (
+                "Дополнительно попроси уточнить следующие моменты:\n" + bullets + "\n\n"
+            )
         prompt_text = (
             "Недостаточно информации, чтобы выполнить поиск по документам. "
             "Сформулируй 1-3 уточняющих вопроса на русском, чтобы определить релевантные документы или условия. "
@@ -561,5 +630,7 @@ class RagAgent:
             *history[-self._messages_limit :],
             {"role": "user", "content": user_content},
         ]
-        resp = await self._chat.chat(messages=messages, temperature=0.2, top_p=0.9, max_tokens=400)
+        resp = await self._chat.chat(
+            messages=messages, temperature=0.2, top_p=0.9, max_tokens=400
+        )
         return resp["choices"][0]["message"]["content"]

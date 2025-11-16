@@ -34,7 +34,9 @@ class DocumentVectorManager:
         embedding_client: OpenRouterEmbeddingClient | None = None,
         vector_store: QdrantVectorStore | None = None,
     ) -> None:
-        self._embedding_client = embedding_client or OpenRouterEmbeddingClient.from_settings()
+        self._embedding_client = (
+            embedding_client or OpenRouterEmbeddingClient.from_settings()
+        )
         self._vector_store = vector_store or QdrantVectorStore.from_settings()
 
     async def index_document(
@@ -48,7 +50,9 @@ class DocumentVectorManager:
             return
 
         if not self._embedding_client.is_enabled:
-            logger.info("embedding-disabled", reason="OpenRouter API key not configured")
+            logger.info(
+                "embedding-disabled", reason="OpenRouter API key not configured"
+            )
             return
 
         if not self._vector_store.is_enabled:
@@ -59,7 +63,9 @@ class DocumentVectorManager:
         embeddings = await self._embedding_client.embed_texts(texts)
 
         if len(embeddings) != len(chunk_records):
-            raise RuntimeError("The number of embeddings does not match the number of chunks")
+            raise RuntimeError(
+                "The number of embeddings does not match the number of chunks"
+            )
 
         await self._vector_store.upsert_document_embeddings(
             document=document,
@@ -82,7 +88,9 @@ class DocumentVectorManager:
             return []
 
         if not self._embedding_client.is_enabled:
-            logger.info("embedding-disabled", reason="OpenRouter API key not configured")
+            logger.info(
+                "embedding-disabled", reason="OpenRouter API key not configured"
+            )
             return []
 
         if not self._vector_store.is_enabled:

@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     JSON_LOGS: bool = False
     ADD_BASE_ADMIN: bool = False
 
-    OPENROUTER_API_KEY: str | None = "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"
+    OPENROUTER_API_KEY: str | None = (
+        "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"
+    )
     OPENROUTER_EMBED_MODEL: str = "openai/text-embedding-3-large"
     OPENROUTER_EMBED_URL: str | None = None
     OPENROUTER_HTTP_REFERER: str | None = None

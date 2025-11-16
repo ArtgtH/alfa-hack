@@ -18,7 +18,9 @@ class DocumentChunkRepository(BaseRepository[DocumentChunk]):
         result = await self._db.execute(stmt)
         return result.scalars().all()
 
-    async def get_many_by_ids(self, chunk_ids: Sequence[int]) -> Sequence[DocumentChunk]:
+    async def get_many_by_ids(
+        self, chunk_ids: Sequence[int]
+    ) -> Sequence[DocumentChunk]:
         if not chunk_ids:
             return []
 

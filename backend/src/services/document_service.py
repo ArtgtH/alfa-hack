@@ -25,7 +25,9 @@ def _get_document_pipeline() -> DocumentUploadPipeline:
     """Get or create document pipeline with lazy initialization"""
     global _document_pipeline
     if _document_pipeline is None:
-        _document_pipeline = DocumentUploadPipeline(max_file_size_bytes=MAX_FILE_SIZE_BYTES)
+        _document_pipeline = DocumentUploadPipeline(
+            max_file_size_bytes=MAX_FILE_SIZE_BYTES
+        )
     return _document_pipeline
 
 

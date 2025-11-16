@@ -32,11 +32,15 @@ class OpenRouterEmbeddingClient:
     def from_settings(cls) -> "OpenRouterEmbeddingClient":
         return cls(
             api_key=getattr(settings, "OPENROUTER_API_KEY", None),
-            model=getattr(settings, "OPENROUTER_EMBED_MODEL", "openai/text-embedding-3-large"),
+            model=getattr(
+                settings, "OPENROUTER_EMBED_MODEL", "openai/text-embedding-3-large"
+            ),
             base_url=getattr(settings, "OPENROUTER_EMBED_URL", None),
             referer=getattr(settings, "OPENROUTER_HTTP_REFERER", None),
             title=getattr(settings, "OPENROUTER_APP_TITLE", None) or settings.APP_NAME,
-            timeout_seconds=float(getattr(settings, "OPENROUTER_TIMEOUT_SECONDS", 30.0)),
+            timeout_seconds=float(
+                getattr(settings, "OPENROUTER_TIMEOUT_SECONDS", 30.0)
+            ),
         )
 
     @property
@@ -71,7 +75,10 @@ class OpenRouterEmbeddingClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            logging.exception("openrouter-embedding-request-failed", status_code=exc.response.status_code)
+            logging.exception(
+                "openrouter-embedding-request-failed",
+                status_code=exc.response.status_code,
+            )
             raise
 
         data = response.json()

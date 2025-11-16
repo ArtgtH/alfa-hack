@@ -42,7 +42,9 @@ class DocumentParser:
                 "parse_sync cannot be used inside an active event loop; call `await parse(...)` instead."
             )
 
-        markdown, metadata = self._parse_bytes(content_bytes=content_bytes, filename=filename)
+        markdown, metadata = self._parse_bytes(
+            content_bytes=content_bytes, filename=filename
+        )
         if not markdown.strip():
             raise RuntimeError("Parsed document is empty")
 
@@ -59,7 +61,9 @@ class DocumentParser:
         parser = self._resolve_parser(extension)
         return parser(content_bytes, filename or "document")
 
-    def _resolve_parser(self, extension: str) -> Callable[[bytes, str], tuple[str, dict[str, Any]]]:
+    def _resolve_parser(
+        self, extension: str
+    ) -> Callable[[bytes, str], tuple[str, dict[str, Any]]]:
         if extension == ".pdf":
             return self._parse_pdf
         if extension in {".docx", ".dotx"}:
@@ -68,7 +72,9 @@ class DocumentParser:
             return self._parse_pptx
         return self._parse_plain_text
 
-    def _parse_pdf(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+    def _parse_pdf(
+        self, content_bytes: bytes, filename: str
+    ) -> tuple[str, dict[str, Any]]:
         try:
             text = pdf_extract_text(io.BytesIO(content_bytes)) or ""
         except Exception as exc:
@@ -77,7 +83,9 @@ class DocumentParser:
         markdown = self._normalize_text(text)
         return markdown, self._base_metadata(filename)
 
-    def _parse_docx(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+    def _parse_docx(
+        self, content_bytes: bytes, filename: str
+    ) -> tuple[str, dict[str, Any]]:
         try:
             document = DocxDocument(io.BytesIO(content_bytes))
         except Exception as exc:
@@ -108,7 +116,9 @@ class DocumentParser:
         metadata["sections"] = sections
         return markdown, metadata
 
-    def _parse_pptx(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+    def _parse_pptx(
+        self, content_bytes: bytes, filename: str
+    ) -> tuple[str, dict[str, Any]]:
         try:
             presentation = Presentation(io.BytesIO(content_bytes))
         except Exception as exc:
@@ -148,7 +158,9 @@ class DocumentParser:
         metadata["sections"] = sections
         return markdown, metadata
 
-    def _parse_plain_text(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+    def _parse_plain_text(
+        self, content_bytes: bytes, filename: str
+    ) -> tuple[str, dict[str, Any]]:
         text = self._decode_bytes(content_bytes)
         markdown = self._normalize_text(text)
         return markdown, self._base_metadata(filename)
