@@ -14,7 +14,7 @@ Environment variables (all optional unless noted) are read via `config.Settings`
 | Variable | Description | Default |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | API key for OpenRouter embeddings. When unset, embedding is skipped. | – |
-| `OPENROUTER_EMBED_MODEL` | Embedding model name. | `openai/text-embedding-3-large` |
+| `OPENROUTER_EMBED_MODEL` | Embedding model name. | `qwen/qwen3-embedding-8b` |
 | `OPENROUTER_EMBED_URL` | Override base embeddings URL. | `https://openrouter.ai/api/v1/embeddings` |
 | `OPENROUTER_HTTP_REFERER` | Optional referer header. | – |
 | `OPENROUTER_APP_TITLE` | Optional app title header (defaults to `APP_NAME`). | – |

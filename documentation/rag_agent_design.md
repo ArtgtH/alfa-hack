@@ -51,6 +51,26 @@
 1) Upload: файл → MinIO URL → `DocumentParser` (PDF → pdfminer, DOCX → python-docx, PPTX → python-pptx, остальные → текстовый декодер) → Split → DB → Embeddings → Qdrant.
 2) Query: `RagAgent.run` → выбор сценария → (опционально Fusion) → поиск/контекст → ответ на русском.
 
+## Корпоративная база знаний (`knowledge_base_chunks`)
+- Отдельная коллекция Qdrant c `payload.source = "knowledge_base"` и `user_id=0`, куда попадает ETL из `knowledge_base/train_data.csv`.
+- Используем embeddings `qwen/qwen3-embedding-8b` (размерность 4096); RAG-ответы строим при сценарии 2 (общие вопросы) через функцию `search_general_kb`.
+
+### Инструкции по обслуживанию коллекции
+1. **Ингест / переиндексация**  
+   ```
+   cd backend
+   PYTHONPATH=src poetry run python ../knowledge_base/kb_etl.py --reset-collection
+   ```  
+   Скрипт дропает и пересоздаёт коллекцию перед загрузкой, чтобы гарантировать корректную размерность вектора. Без флага `--reset-collection` можно запускать инкрементально.
+2. **Смена embedding-модели**  
+   При обновлении модели всегда выполняем прогон с `--reset-collection`, иначе Qdrant вернёт ошибку `Wrong input: Vector dimension error (expected 3072, got 4096)` и т.п.
+3. **Поисковый слой**  
+   - `search_general_kb` использует `DocumentVectorManager`, сконфигурированный на коллекцию `knowledge_base_chunks`, и накладывает фильтр `source="knowledge_base"`.  
+   - Ответы в RAG указывают источник («Внутренняя база знаний») и приоритизируют эти чанки, если пользователь не предоставил собственных документов.
+4. **Отладка**  
+   - Для тестового запуска используем `--limit N` и `--dry-run` в `kb_etl.py`.  
+   - Логи `structlog` (`qdrant-upsert-success`, `qdrant-collection-created`) подтверждают, что коллекция пересоздана и загружена корректно.
+
 ## Ограничения и дальнейшие шаги
 - Добавить полноценно управляемые функции (tools) и внешние API-колбеки.
 - Улучшить детектор сценариев (правила + LLM-верификация).

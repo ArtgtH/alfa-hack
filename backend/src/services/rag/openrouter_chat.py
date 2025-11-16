@@ -22,6 +22,9 @@ class OpenRouterChatClient:
         referer: str | None = None,
         title: str | None = None,
         timeout_seconds: float = 60.0,
+        default_temperature: float | None = None,
+        default_top_p: float | None = None,
+        default_max_tokens: int | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
@@ -29,17 +32,29 @@ class OpenRouterChatClient:
         self._referer = referer
         self._title = title
         self._timeout_seconds = timeout_seconds
+        self._default_temperature = default_temperature
+        self._default_top_p = default_top_p
+        self._default_max_tokens = default_max_tokens
 
     @classmethod
     def from_settings(cls) -> "OpenRouterChatClient":
         return cls(
             api_key=getattr(settings, "OPENROUTER_API_KEY", None),
-            model=getattr(settings, "OPENROUTER_CHAT_MODEL", "openai/gpt-4o-mini"),
+            model=getattr(
+                settings, "OPENROUTER_CHAT_MODEL", "qwen/qwen3-235b-a22b-2507"
+            ),
             base_url=getattr(settings, "OPENROUTER_CHAT_URL", None),
             referer=getattr(settings, "OPENROUTER_HTTP_REFERER", None),
             title=getattr(settings, "OPENROUTER_APP_TITLE", None) or settings.APP_NAME,
             timeout_seconds=float(
                 getattr(settings, "OPENROUTER_CHAT_TIMEOUT_SECONDS", 60.0)
+            ),
+            default_temperature=getattr(
+                settings, "OPENROUTER_CHAT_DEFAULT_TEMPERATURE", None
+            ),
+            default_top_p=getattr(settings, "OPENROUTER_CHAT_DEFAULT_TOP_P", None),
+            default_max_tokens=getattr(
+                settings, "OPENROUTER_CHAT_DEFAULT_MAX_TOKENS", None
             ),
         )
 
@@ -66,10 +81,16 @@ class OpenRouterChatClient:
             payload["tool_choice"] = tool_choice
         if temperature is not None:
             payload["temperature"] = temperature
+        elif self._default_temperature is not None:
+            payload["temperature"] = self._default_temperature
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        elif self._default_max_tokens is not None:
+            payload["max_tokens"] = self._default_max_tokens
         if top_p is not None:
             payload["top_p"] = top_p
+        elif self._default_top_p is not None:
+            payload["top_p"] = self._default_top_p
         if frequency_penalty is not None:
             payload["frequency_penalty"] = frequency_penalty
         if presence_penalty is not None:

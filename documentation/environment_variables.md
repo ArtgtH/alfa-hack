@@ -29,14 +29,14 @@ This document lists all environment variables required to run the Finance RAG ap
 - `OPENROUTER_API_KEY` - Your OpenRouter API key (required for chat and embeddings)
 
 ### Chat Model Configuration
-- `OPENROUTER_CHAT_MODEL` - Chat model identifier (default: `openai/gpt-4o-mini`)
-  - Examples: `openai/gpt-4o-mini`, `openai/gpt-4o`, `anthropic/claude-3-opus`
+- `OPENROUTER_CHAT_MODEL` - Chat model identifier (default: `qwen/qwen3-235b-a22b-2507`)
+  - Examples: `qwen/qwen3-235b-a22b-2507`, `qwen/qwen3-14b`, `anthropic/claude-3-opus`
 - `OPENROUTER_CHAT_URL` - Override chat API endpoint (optional, defaults to OpenRouter)
 - `OPENROUTER_CHAT_TIMEOUT_SECONDS` - Chat request timeout (default: `60.0`)
 
 ### Embedding Model Configuration
-- `OPENROUTER_EMBED_MODEL` - Embedding model identifier (default: `openai/text-embedding-3-large`)
-  - Examples: `openai/text-embedding-3-large`, `openai/text-embedding-3-small`
+- `OPENROUTER_EMBED_MODEL` - Embedding model identifier (default: `qwen/qwen3-embedding-8b`)
+  - Examples: `qwen/qwen3-embedding-8b`, `openai/text-embedding-3-small`
 - `OPENROUTER_EMBED_URL` - Override embeddings API endpoint (optional, defaults to OpenRouter)
 - `OPENROUTER_TIMEOUT_SECONDS` - Embedding request timeout (default: `30.0`)
 
@@ -91,8 +91,8 @@ ADD_BASE_ADMIN=true
 
 # OpenRouter (Required for RAG)
 OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_CHAT_MODEL=openai/gpt-4o-mini
-OPENROUTER_EMBED_MODEL=openai/text-embedding-3-large
+OPENROUTER_CHAT_MODEL=qwen/qwen3-235b-a22b-2507
+OPENROUTER_EMBED_MODEL=qwen/qwen3-embedding-8b
 OPENROUTER_CHAT_TIMEOUT_SECONDS=60.0
 OPENROUTER_TIMEOUT_SECONDS=30.0
 
@@ -122,8 +122,8 @@ services:
       
       # OpenRouter
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-openai/gpt-4o-mini}
-      OPENROUTER_EMBED_MODEL: ${OPENROUTER_EMBED_MODEL:-openai/text-embedding-3-large}
+      OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-qwen/qwen3-235b-a22b-2507}
+      OPENROUTER_EMBED_MODEL: ${OPENROUTER_EMBED_MODEL:-qwen/qwen3-embedding-8b}
       
       # Qdrant
       QDRANT_URL: ${QDRANT_URL:-http://178.72.149.75:6333}
