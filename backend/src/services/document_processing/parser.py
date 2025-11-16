@@ -1,69 +1,37 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import io
-import os
-from typing import Any, Sequence
+from pathlib import Path
+from typing import Any, Callable
 
 import structlog
-from unstructured.documents.elements import Element, ListItem, NarrativeText, Table, Text, Title
-from unstructured.partition.auto import partition
+from docx import Document as DocxDocument
+from pdfminer.high_level import extract_text as pdf_extract_text
+from pptx import Presentation
 
 from .models import MarkdownDocument
 
 
 logger = structlog.get_logger(__name__)
-_TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
-class UnstructuredDocumentParser:
-    """Parse binary office documents into Markdown using `unstructured` best practices."""
-
-    def __init__(
-        self,
-        *,
-        strategy: str | None = None,
-        fallback_strategy: str | None = None,
-        enable_hi_res: bool | None = None,
-        ocr_languages: str = "rus+eng",
-    ) -> None:
-        env_strategy = (os.getenv("UNSTRUCTURED_PARSER_STRATEGY") or "").strip().lower()
-        env_fallback = (os.getenv("UNSTRUCTURED_PARSER_FALLBACK") or "").strip().lower()
-        env_hi_res = (os.getenv("UNSTRUCTURED_ENABLE_HI_RES") or "").strip().lower()
-
-        resolved_strategy = (strategy or env_strategy or "fast").lower()
-        resolved_fallback = (fallback_strategy or env_fallback or "").lower() or None
-
-        if enable_hi_res is None:
-            enable_hi_res = env_hi_res in _TRUE_VALUES
-
-        self._ocr_languages = ocr_languages
-        self._allow_hi_res = enable_hi_res
-        self._strategy = resolved_strategy
-        self._fallback_strategy = resolved_fallback
-        self._hi_res_available = self._allow_hi_res and self._detect_hi_res_support()
-
-        if self._strategy == "hi_res" and not self._hi_res_available:
-            logger.info(
-                "unstructured-hi-res-disabled",
-                reason="required dependencies not installed",
-                fallback="fast",
-            )
-            self._strategy = "fast"
+class DocumentParser:
+    """Lightweight parser that converts common office formats into Markdown."""
 
     async def parse(
         self, *, content_bytes: bytes, filename: str | None = None
     ) -> MarkdownDocument:
-        elements = await self._partition_elements(content_bytes=content_bytes, filename=filename)
-        markdown = self._elements_to_markdown(elements)
-        metadata = self._extract_metadata(elements=elements, filename=filename)
-        return MarkdownDocument(content=markdown, metadata=metadata)
+        return await asyncio.to_thread(
+            self.parse_sync,
+            content_bytes=content_bytes,
+            filename=filename,
+        )
 
     def parse_sync(
         self, *, content_bytes: bytes, filename: str | None = None
     ) -> MarkdownDocument:
-        """Synchronous helper for CLI scripts."""
+        """Synchronous helper for scripts and tests."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -71,187 +39,163 @@ class UnstructuredDocumentParser:
 
         if loop and loop.is_running():
             raise RuntimeError(
-                "parse_sync cannot run inside an active event loop. "
-                "Use `await parse(...)` instead."
+                "parse_sync cannot be used inside an active event loop; call `await parse(...)` instead."
             )
 
-        return asyncio.run(self.parse(content_bytes=content_bytes, filename=filename))
+        markdown, metadata = self._parse_bytes(content_bytes=content_bytes, filename=filename)
+        if not markdown.strip():
+            raise RuntimeError("Parsed document is empty")
 
-    async def _partition_elements(
+        return MarkdownDocument(content=markdown, metadata=metadata)
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers
+    # ------------------------------------------------------------------ #
+
+    def _parse_bytes(
         self, *, content_bytes: bytes, filename: str | None
-    ) -> Sequence[Element]:
-        primary_strategy = self._resolve_strategy(self._strategy)
+    ) -> tuple[str, dict[str, Any]]:
+        extension = (Path(filename).suffix.lower() if filename else "") or ""
+        parser = self._resolve_parser(extension)
+        return parser(content_bytes, filename or "document")
 
+    def _resolve_parser(self, extension: str) -> Callable[[bytes, str], tuple[str, dict[str, Any]]]:
+        if extension == ".pdf":
+            return self._parse_pdf
+        if extension in {".docx", ".dotx"}:
+            return self._parse_docx
+        if extension in {".pptx", ".ppsx"}:
+            return self._parse_pptx
+        return self._parse_plain_text
+
+    def _parse_pdf(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
         try:
-            return await asyncio.to_thread(
-                self._partition_sync,
-                content_bytes,
-                filename,
-                primary_strategy,
-            )
-        except Exception as primary_exc:
-            fallback_strategy = self._resolve_strategy(self._fallback_strategy)
-            if fallback_strategy and fallback_strategy != primary_strategy:
-                logger.warning(
-                    "unstructured-parse-retrying",
-                    primary_strategy=primary_strategy,
-                    fallback_strategy=fallback_strategy,
-                    error=str(primary_exc),
-                )
-                try:
-                    return await asyncio.to_thread(
-                        self._partition_sync,
-                        content_bytes,
-                        filename,
-                        fallback_strategy,
-                    )
-                except Exception as fallback_exc:
-                    raise RuntimeError(
-                        "Failed to parse document via unstructured. "
-                        "Make sure poppler, tesseract, libmagic and ghostscript are installed."
-                    ) from fallback_exc
+            text = pdf_extract_text(io.BytesIO(content_bytes)) or ""
+        except Exception as exc:
+            raise RuntimeError("Failed to parse PDF document") from exc
 
-            raise RuntimeError(
-                "Failed to parse document via unstructured. "
-                "Make sure poppler, tesseract, libmagic and ghostscript are installed."
-            ) from primary_exc
+        markdown = self._normalize_text(text)
+        return markdown, self._base_metadata(filename)
 
-    def _partition_sync(
-        self,
-        content_bytes: bytes,
-        filename: str | None,
-        strategy: str,
-    ) -> Sequence[Element]:
-        buffer = io.BytesIO(content_bytes)
-        buffer.seek(0)
+    def _parse_docx(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+        try:
+            document = DocxDocument(io.BytesIO(content_bytes))
+        except Exception as exc:
+            raise RuntimeError("Failed to parse DOCX document") from exc
 
-        return partition(
-            file=buffer,
-            file_filename=filename,
-            include_metadata=True,
-            strategy=strategy,
-            ocr_languages=self._ocr_languages,
-            infer_table_structure=True,
-            include_page_breaks=False,
-        )
-
-    def _elements_to_markdown(self, elements: Sequence[Element]) -> str:
         lines: list[str] = []
-
-        for element in elements:
-            text = self._clean_text(element)
-            if not text:
-                continue
-
-            if isinstance(element, Title):
-                heading_level = self._heading_level(element)
-                heading_level = max(1, min(heading_level, 6))
-                lines.append(f"{'#' * heading_level} {text}")
-            elif isinstance(element, ListItem):
-                list_type = self._metadata_dict(element).get("list_type", "unordered")
-                bullet = "1." if list_type == "ordered" else "-"
-                lines.append(f"{bullet} {text}")
-            elif isinstance(element, Table):
-                lines.append(text)
-            else:
-                lines.append(text)
-
-        return "\n\n".join(lines).strip()
-
-    def _extract_metadata(
-        self, *, elements: Sequence[Element], filename: str | None
-    ) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
         order = 0
 
-        for element in elements:
-            if not isinstance(element, Title):
-                continue
-
-            text = self._clean_text(element)
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
             if not text:
                 continue
 
-            metadata_dict = self._metadata_dict(element)
-            sections.append(
-                {
-                    "title": text,
-                    "level": self._heading_level(element),
-                    "order": order,
-                    "page_number": metadata_dict.get("page_number"),
-                }
-            )
-            order += 1
+            style_name = paragraph.style.name if paragraph.style else ""
+            heading_level = self._heading_level_from_style(style_name)
 
-        document_metadata: dict[str, Any] = {"sections": sections}
-        if filename:
-            document_metadata["source_filename"] = filename
+            if heading_level:
+                level = min(heading_level, 6)
+                lines.append(f"{'#' * level} {text}")
+                sections.append({"title": text, "level": level, "order": order})
+                order += 1
+            else:
+                lines.append(text)
 
-        pages = sorted(
-            {
-                element.metadata.page_number
-                for element in elements
-                if element.metadata and element.metadata.page_number is not None
-            }
-        )
-        if pages:
-            document_metadata["pages"] = pages
+        markdown = "\n\n".join(lines).strip()
+        metadata = self._base_metadata(filename)
+        metadata["sections"] = sections
+        return markdown, metadata
 
-        return document_metadata
-
-    def _clean_text(self, element: Element | None) -> str:
-        if element is None:
-            return ""
-
-        text = ""
-        if isinstance(element, (Text, NarrativeText, Title, ListItem, Table)):
-            text = element.text or ""
-        else:
-            text = getattr(element, "text", "") or ""
-
-        return text.strip()
-
-    def _heading_level(self, element: Title) -> int:
-        metadata_dict = self._metadata_dict(element)
-        level = metadata_dict.get("heading_level")
-        if isinstance(level, int):
-            return level
-        if isinstance(level, str) and level.isdigit():
-            return int(level)
-        return 2
-
-    def _metadata_dict(self, element: Element) -> dict[str, Any]:
-        metadata = getattr(element, "metadata", None)
-        if metadata and hasattr(metadata, "to_dict"):
-            return metadata.to_dict() or {}
-        return {}
-
-    def _resolve_strategy(self, strategy: str | None) -> str:
-        if not strategy:
-            return "fast"
-
-        normalized = strategy.lower()
-        if normalized == "hi_res" and not self._hi_res_available:
-            logger.debug(
-                "unstructured-hi-res-unavailable",
-                requested_strategy=strategy,
-                reason="layoutparser/torch not installed",
-            )
-            return "fast"
-
-        if normalized not in {"fast", "auto", "hi_res"}:
-            logger.debug("unstructured-unknown-strategy", strategy=strategy)
-            return "fast"
-
-        if normalized == "hi_res" and not self._allow_hi_res:
-            return "fast"
-
-        return normalized
-
-    def _detect_hi_res_support(self) -> bool:
+    def _parse_pptx(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
         try:
-            importlib.import_module("layoutparser")
-            importlib.import_module("torch")
-            return True
-        except ImportError:
-            return False
+            presentation = Presentation(io.BytesIO(content_bytes))
+        except Exception as exc:
+            raise RuntimeError("Failed to parse PPTX document") from exc
+
+        lines: list[str] = []
+        sections: list[dict[str, Any]] = []
+
+        for index, slide in enumerate(presentation.slides, start=1):
+            title_shape = getattr(slide.shapes, "title", None)
+            title_text = (
+                title_shape.text.strip()
+                if title_shape is not None and getattr(title_shape, "text", "")
+                else f"Слайд {index}"
+            )
+
+            sections.append({"title": title_text, "level": 2, "order": index - 1})
+            lines.append(f"## {title_text}")
+
+            body_blocks: list[str] = []
+            for shape in slide.shapes:
+                if not getattr(shape, "has_text_frame", False):
+                    continue
+                if shape is title_shape:
+                    continue
+
+                paragraphs = [p.text.strip() for p in shape.text_frame.paragraphs]
+                text = "\n".join(filter(None, paragraphs)).strip()
+                if text:
+                    body_blocks.append(text)
+
+            if body_blocks:
+                lines.append("\n\n".join(body_blocks))
+
+        markdown = "\n\n".join(lines).strip()
+        metadata = self._base_metadata(filename)
+        metadata["sections"] = sections
+        return markdown, metadata
+
+    def _parse_plain_text(self, content_bytes: bytes, filename: str) -> tuple[str, dict[str, Any]]:
+        text = self._decode_bytes(content_bytes)
+        markdown = self._normalize_text(text)
+        return markdown, self._base_metadata(filename)
+
+    # ------------------------------------------------------------------ #
+    # Utility helpers
+    # ------------------------------------------------------------------ #
+
+    def _base_metadata(self, filename: str) -> dict[str, Any]:
+        return {"source_filename": filename, "sections": []}
+
+    def _heading_level_from_style(self, style_name: str | None) -> int | None:
+        if not style_name:
+            return None
+
+        normalized = style_name.lower()
+        if "heading" not in normalized:
+            return None
+
+        digits = "".join(ch for ch in normalized if ch.isdigit())
+        if digits.isdigit():
+            return int(digits)
+        return None
+
+    def _decode_bytes(self, content_bytes: bytes) -> str:
+        for encoding in ("utf-8", "utf-16", "cp1251", "latin-1"):
+            try:
+                return content_bytes.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+
+        return content_bytes.decode("utf-8", errors="ignore")
+
+    def _normalize_text(self, text: str) -> str:
+        lines = [line.rstrip() for line in text.splitlines()]
+        normalized: list[str] = []
+        blank = False
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if not blank and normalized:
+                    normalized.append("")
+                    blank = True
+                continue
+
+            normalized.append(stripped)
+            blank = False
+
+        return "\n".join(normalized).strip()

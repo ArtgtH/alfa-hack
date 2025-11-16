@@ -3,7 +3,7 @@
 The document upload flow now parses, chunks, embeds, and indexes each file for retrieval.
 
 ## Processing Stages
-- **Parsing**: `DocumentUploadPipeline` feeds the raw upload into `UnstructuredDocumentParser`, which wraps the `unstructured.partition.auto` pipeline (default `fast` strategy, hi-res only when `UNSTRUCTURED_ENABLE_HI_RES=1` **and** dependencies are present) to convert binary inputs (PDF, DOCX, PPTX, etc.) into Markdown plus optional section metadata (`MarkdownDocument`).
+- **Parsing**: `DocumentUploadPipeline` feeds the raw upload into `DocumentParser`, our lightweight Markdown builder. It uses `pdfminer.six` for PDFs, `python-docx` for DOCX/DOTX, `python-pptx` for PPTX/PPSX, and a robust text decoder for everything else. Headings in DOCX/PPTX preserve structure (converted into Markdown `#` headings), while PDFs/plain text go through aggressive whitespace normalization. No heavy ML dependencies are required, so installations stay fast and CUDA-free.
 - **Chunking**: `ChunkSplitter` uses LangChain's `RecursiveCharacterTextSplitter` (configured for markdown separators) to turn the parsed content into ordered `DocumentChunkPayload` entries.
 - **Persistence**: Each payload is stored as a `DocumentChunk` via `DocumentChunkRepository`. The pipeline keeps a `ChunkRecord` pairing the persisted chunk with its metadata.
 - **Vectorization**: `DocumentVectorManager` calls `OpenRouterEmbeddingClient` to embed chunk text. Embeddings are upserted to Qdrant through `QdrantVectorStore`, attaching payload metadata (`document_id`, `chunk_serial`, etc.) for filtered search.

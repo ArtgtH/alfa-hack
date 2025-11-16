@@ -4,7 +4,7 @@
 
 ## Архитектура
 - Источники данных: `ParsedDocument` и их `DocumentChunk` (Postgres). Вектора фрагментов — Qdrant.
-- Индексация: `DocumentUploadPipeline` → Unstructured (по умолчанию `fast`, hi-res опционально через `UNSTRUCTURED_ENABLE_HI_RES`) → `ChunkSplitter` (Markdown-aware RecursiveCharacterTextSplitter) → сохранение чанков → `DocumentVectorManager` (OpenRouter embeddings → Qdrant).
+- Индексация: `DocumentUploadPipeline` → `DocumentParser` (pdfminer.six / python-docx / python-pptx / plaintext fallback) → `ChunkSplitter` (Markdown-aware RecursiveCharacterTextSplitter) → сохранение чанков → `DocumentVectorManager` (OpenRouter embeddings → Qdrant).
 - Поиск: `DocumentVectorManager.search_chunks` с фильтрами по `user_id` и списку `document_id` (опционально) и порогом сходства.
 - LLM: OpenRouter Chat API (OpenAI-совместимый). Клиент — `OpenRouterChatClient`.
 - Агент: `RagAgent` orchestrator — сценарный выбор, Fusion RAG (уточнение/разбиение вопросов), извлечение контекста и генерация ответа.
@@ -48,7 +48,7 @@
 - Векторка/индексация: см. `documentation/vector_pipeline.md` (OpenRouter embeddings, Qdrant, MinIO для хранения исходных файлов).
 
 ## Потоки
-1) Upload: файл → MinIO URL → Unstructured (`fast` без GPU-зависимостей) → Split → DB → Embeddings → Qdrant.
+1) Upload: файл → MinIO URL → `DocumentParser` (PDF → pdfminer, DOCX → python-docx, PPTX → python-pptx, остальные → текстовый декодер) → Split → DB → Embeddings → Qdrant.
 2) Query: `RagAgent.run` → выбор сценария → (опционально Fusion) → поиск/контекст → ответ на русском.
 
 ## Ограничения и дальнейшие шаги

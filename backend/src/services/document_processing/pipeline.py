@@ -14,7 +14,7 @@ from services.s3.s3_test import upload_to_s3
 
 from .chunk_splitter import ChunkSplitter
 from .models import DocumentChunkPayload, MarkdownDocument
-from .parser import UnstructuredDocumentParser
+from .parser import DocumentParser
 from .vector_manager import ChunkRecord, DocumentVectorManager
 
 
@@ -26,7 +26,7 @@ class DocumentUploadPipeline:
         self,
         *,
         max_file_size_bytes: int,
-        parser: UnstructuredDocumentParser | None = None,
+        parser: DocumentParser | None = None,
         chunk_splitter: ChunkSplitter | None = None,
         vector_manager: DocumentVectorManager | None = None,
     ) -> None:
@@ -36,10 +36,10 @@ class DocumentUploadPipeline:
         self._vector_manager = vector_manager or DocumentVectorManager()
     
     @property
-    def _parser(self) -> UnstructuredDocumentParser:
+    def _parser(self) -> DocumentParser:
         """Lazy initialization of parser to avoid import errors at module level"""
         if self._parser_instance is None:
-            self._parser_instance = UnstructuredDocumentParser()
+            self._parser_instance = DocumentParser()
         return self._parser_instance
 
     async def handle(self, file: UploadFile, db: AsyncSession, user: User) -> ParsedDocument:

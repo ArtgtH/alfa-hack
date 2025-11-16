@@ -1,6 +1,6 @@
 from .chunk_splitter import ChunkSplitter
 from .models import DocumentChunkPayload, MarkdownDocument
-from .parser import UnstructuredDocumentParser
+from .parser import DocumentParser
 from .pipeline import DocumentUploadPipeline
 from .vector_manager import DocumentVectorManager, VectorSearchResult
 
@@ -9,7 +9,7 @@ __all__ = [
     "DocumentChunkPayload",
     "DocumentUploadPipeline",
     "MarkdownDocument",
-    "UnstructuredDocumentParser",
+    "DocumentParser",
     "DocumentVectorManager",
     "VectorSearchResult",
 ]
