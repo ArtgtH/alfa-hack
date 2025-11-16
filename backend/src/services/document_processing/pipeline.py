@@ -13,7 +13,7 @@ from db.repositories.document_repo import ParsedDocumentRepository
 from services.s3.s3_test import upload_to_s3
 
 from .chunk_splitter import ChunkSplitter
-from .models import DocumentChunkPayload
+from .models import DocumentChunkPayload, MarkdownDocument
 from .parser import MegaParseClient
 from .vector_manager import ChunkRecord, DocumentVectorManager
 
@@ -48,7 +48,7 @@ class DocumentUploadPipeline:
         self._ensure_file_size(content_bytes)
         minio_url = await upload_to_s3(content_bytes, filename, user)
 
-        markdown_doc = self._parse_with_megaparse(
+        markdown_doc = await self._parse_with_megaparse(
             content_bytes=content_bytes,
             filename=filename,
         )
@@ -101,14 +101,14 @@ class DocumentUploadPipeline:
                 detail="File is too large",
             )
 
-    def _parse_with_megaparse(
+    async def _parse_with_megaparse(
         self,
         *,
         content_bytes: bytes,
         filename: str | None,
     ) -> MarkdownDocument:
         try:
-            markdown_doc = self._parser.parse(
+            markdown_doc = await self._parser.parse(
                 content_bytes=content_bytes,
                 filename=filename,
             )

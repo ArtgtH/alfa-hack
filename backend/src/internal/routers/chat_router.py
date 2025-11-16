@@ -81,6 +81,7 @@ async def create_message(
         raise HTTPException(status_code=404, detail="Chat not found")
 
     await chat_repo.set_active(chat_id=chat_id, user=user)
+    prompt_text = chat.prompt.text if getattr(chat, "prompt", None) else None
 
     message_repo = MessageRepository(db)
     user_message = Message(
@@ -99,6 +100,7 @@ async def create_message(
                 query=user_message.content,
                 chat_id=chat_id,
                 selected_document_ids=user_message.documents_ids or [],
+                answer_instructions=prompt_text,
             )
 
             ai_message = Message(

@@ -8,12 +8,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from config import settings
-from db.base import init_db, engine
+from db.base import init_db, engine, session_factory
 from db.repositories.user_repo import create_default_admin
 from internal.dependencies import Db
 from internal.routers import auth_router, chat_router, document_router
 from internal.routers.admin import setup_admin
 from setup_logger import setup_logging
+from services.rag.prompt_registry import seed_prompts
 
 setup_logging(log_level=settings.LOG_LEVEL)
 logger = structlog.get_logger(__name__)
@@ -29,6 +30,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, Any]:
         logger.info("Database initialized successfully")
         if settings.ADD_BASE_ADMIN:
             await create_default_admin()
+
+        async with session_factory() as session:
+            await seed_prompts(session)
+            await session.commit()
+
         yield
 
     except Exception:

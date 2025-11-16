@@ -5,6 +5,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     ca-certificates \
+    libmagic1 \
+    libmagic-dev \
+    libxml2 \
+    libxml2-dev \
+    libxslt1.1 \
+    libxslt1-dev \
+    poppler-utils \
+    tesseract-ocr \
+    libtesseract-dev \
+    libleptonica-dev \
+    libpoppler-cpp-dev \
+    libglib2.0-0 \
+    libglib2.0-dev \
+    ffmpeg \
+    ghostscript \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure pip for better SSL and retry handling
@@ -40,6 +56,21 @@ RUN for i in 1 2 3; do \
     done
 
 FROM python:3.12-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    libxml2 \
+    libxslt1.1 \
+    poppler-utils \
+    tesseract-ocr \
+    libtesseract-dev \
+    libleptonica-dev \
+    libpoppler-cpp-dev \
+    libglib2.0-0 \
+    ffmpeg \
+    ghostscript \
+    pandoc \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

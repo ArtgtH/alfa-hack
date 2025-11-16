@@ -20,8 +20,10 @@ class ChatRepository(BaseRepository[Chat]):
 
     async def create_new_chat(self, prompt: Prompt, user: User) -> Chat:
         chat = Chat(prompt=prompt, user=user)
-        await self.set_active(chat_id=chat.id, user=user)
         await self.create(chat)
+        await self._db.flush()
+        await self._db.refresh(chat)
+        await self.set_active(chat_id=chat.id, user=user)
 
         stmt = (
             select(Chat)

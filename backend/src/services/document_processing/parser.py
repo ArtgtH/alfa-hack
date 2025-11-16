@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import io
+from pathlib import Path
 from typing import Any
 
 from .models import MarkdownDocument
@@ -8,14 +11,13 @@ from .models import MarkdownDocument
 class MegaParseClient:
     def __init__(self) -> None:
         try:
-            from megaparse import MarkdownParser
+            from megaparse.core.megaparse import MegaParse
         except ImportError as exc:
             raise RuntimeError(
                 "megaparse package is required to parse uploaded documents. "
                 "Please ensure megaparse and its dependencies are properly installed."
             ) from exc
         except Exception as exc:
-            # Handle other import errors (e.g., dependency conflicts)
             raise RuntimeError(
                 f"Failed to initialize megaparse parser: {exc}. "
                 "This may be due to dependency version conflicts. "
@@ -23,43 +25,47 @@ class MegaParseClient:
             ) from exc
 
         try:
-            self._parser = MarkdownParser()
+            self._parser = MegaParse()
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to create MarkdownParser instance: {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to create MegaParse instance: {exc}") from exc
 
-    def parse(
+    async def parse(
         self, *, content_bytes: bytes, filename: str | None = None
     ) -> MarkdownDocument:
-        parsed_document = self._parse_bytes(content_bytes, filename)
+        parsed_document = await self._parse_bytes(content_bytes, filename)
         markdown = self._extract_markdown(parsed_document)
         metadata = self._extract_metadata(parsed_document)
         return MarkdownDocument(content=markdown, metadata=metadata)
 
-    def _parse_bytes(
-        self, content_bytes: bytes, filename: str | None
-    ) -> Any:
-        parse_kwargs: dict[str, Any] = {}
-        if filename:
-            parse_kwargs["filename"] = filename
+    def parse_sync(self, *, content_bytes: bytes, filename: str | None = None) -> MarkdownDocument:
+        """Synchronous helper for tests or scripts."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
 
-        if hasattr(self._parser, "parse_bytes"):
-            return self._parser.parse_bytes(content_bytes, **parse_kwargs)
+        if loop and loop.is_running():
+            raise RuntimeError(
+                "parse_sync cannot be used inside a running event loop; call `await parse(...)` instead."
+            )
 
-        if hasattr(self._parser, "parse"):
-            return self._parser.parse(content_bytes, **parse_kwargs)
+        return asyncio.run(self.parse(content_bytes=content_bytes, filename=filename))
 
-        raise RuntimeError("MegaParse parser does not expose a supported parse method")
+    async def _parse_bytes(self, content_bytes: bytes, filename: str | None) -> Any:
+        file_extension = Path(filename).suffix if filename else ""
+        buffer = io.BytesIO(content_bytes)
+        buffer.seek(0)
+
+        try:
+            return await self._parser.aload(file=buffer, file_extension=file_extension)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to parse document via MegaParse: {exc}") from exc
 
     def _extract_markdown(self, parsed_document: Any) -> str:
-        candidate_attrs = (
-            "to_markdown",
-            "markdown",
-            "content",
-            "text",
-        )
+        if isinstance(parsed_document, str):
+            return parsed_document
 
+        candidate_attrs = ("to_markdown", "markdown", "content", "text")
         for attr_name in candidate_attrs:
             attribute = getattr(parsed_document, attr_name, None)
             if callable(attribute):
@@ -68,9 +74,6 @@ class MegaParseClient:
                     return result
             elif isinstance(attribute, str):
                 return attribute
-
-        if isinstance(parsed_document, str):
-            return parsed_document
 
         raise RuntimeError("Unable to obtain markdown content from MegaParse output")
 

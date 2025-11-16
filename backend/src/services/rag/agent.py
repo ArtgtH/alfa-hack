@@ -70,6 +70,7 @@ class RagAgent:
         query: str,
         chat_id: int | None = None,
         selected_document_ids: Sequence[int] | None = None,
+        answer_instructions: str | None = None,
     ) -> AgentResult:
         history = await self._load_chat_history(db, chat_id) if chat_id else []
         decision = await self._choose_scenario(query=query, history=history, selected_ids=selected_document_ids)
@@ -92,10 +93,17 @@ class RagAgent:
             },
         }
 
+        instructions = self._resolve_instructions(answer_instructions)
+
         if scenario == 2 and selected_document_ids:
             docs, total_len = await self._load_documents(db, selected_document_ids)
             if total_len <= self._max_context_chars:
-                answer = await self._answer_with_full_context(query=query, history=history, documents=docs)
+                answer = await self._answer_with_full_context(
+                    query=query,
+                    history=history,
+                    documents=docs,
+                    instructions=instructions,
+                )
             else:
                 if run_use_query_expansion:
                     used_chunks, qx_debug = await self._search_with_expansion(
@@ -106,7 +114,12 @@ class RagAgent:
                     used_chunks = await self._search_chunks(
                         db=db, user=user, query=query, document_ids=selected_document_ids
                     )
-                answer = await self._answer_with_chunks(query=query, history=history, chunks=used_chunks)
+                answer = await self._answer_with_chunks(
+                    query=query,
+                    history=history,
+                    chunks=used_chunks,
+                    instructions=instructions,
+                )
         elif scenario == 1:
             if run_use_query_expansion:
                 used_chunks, qx_debug = await self._search_with_expansion(
@@ -115,9 +128,14 @@ class RagAgent:
                 debug["query_expansion"] = qx_debug
             else:
                 used_chunks = await self._search_chunks(db=db, user=user, query=query, document_ids=None)
-            answer = await self._answer_with_chunks(query=query, history=history, chunks=used_chunks)
+            answer = await self._answer_with_chunks(
+                query=query,
+                history=history,
+                chunks=used_chunks,
+                instructions=instructions,
+            )
         elif scenario == 4:
-            answer = await self._answer_general(query=query, history=history)
+            answer = await self._answer_general(query=query, history=history, instructions=instructions)
         else:  # scenario 3 или уточнение
             answer = await self._ask_clarification(query=query, history=history, clarifications=decision.clarifications)
 
@@ -358,18 +376,25 @@ class RagAgent:
             top_results.append(res)
         return top_results
 
+    def _resolve_instructions(self, custom_value: str | None) -> str:
+        if custom_value:
+            stripped = custom_value.strip()
+            if stripped:
+                return stripped
+        return self._answer_format_instructions()
+
     async def _answer_with_full_context(
         self,
         *,
         query: str,
         history: list[dict[str, str]],
         documents: Sequence[ParsedDocument],
+        instructions: str,
     ) -> str:
         from pathlib import Path
 
         base = Path(__file__).with_suffix("").parent / "prompt_storage"
         system_prompt = (base / "system_ru.txt").read_text(encoding="utf-8")
-        instructions = self._answer_format_instructions()
 
         context_parts: list[str] = []
         for idx, d in enumerate(documents, start=1):
@@ -409,12 +434,12 @@ class RagAgent:
         query: str,
         history: list[dict[str, str]],
         chunks: Sequence[VectorSearchResult],
+        instructions: str,
     ) -> str:
         from pathlib import Path
 
         base = Path(__file__).with_suffix("").parent / "prompt_storage"
         system_prompt = (base / "system_ru.txt").read_text(encoding="utf-8")
-        instructions = self._answer_format_instructions()
 
         snippets: list[str] = []
         for idx, r in enumerate(chunks, start=1):
@@ -459,12 +484,12 @@ class RagAgent:
         *,
         query: str,
         history: list[dict[str, str]],
+        instructions: str,
     ) -> str:
         from pathlib import Path
 
         base = Path(__file__).with_suffix("").parent / "prompt_storage"
         system_prompt = (base / "system_ru.txt").read_text(encoding="utf-8")
-        instructions = self._answer_format_instructions()
 
         user_content = (
             f"Вопрос клиента: {query}\n\n"
