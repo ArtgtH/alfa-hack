@@ -14,7 +14,7 @@ from services.s3.s3_test import upload_to_s3
 
 from .chunk_splitter import ChunkSplitter
 from .models import DocumentChunkPayload, MarkdownDocument
-from .parser import MegaParseClient
+from .parser import UnstructuredDocumentParser
 from .vector_manager import ChunkRecord, DocumentVectorManager
 
 
@@ -26,7 +26,7 @@ class DocumentUploadPipeline:
         self,
         *,
         max_file_size_bytes: int,
-        parser: MegaParseClient | None = None,
+        parser: UnstructuredDocumentParser | None = None,
         chunk_splitter: ChunkSplitter | None = None,
         vector_manager: DocumentVectorManager | None = None,
     ) -> None:
@@ -36,10 +36,10 @@ class DocumentUploadPipeline:
         self._vector_manager = vector_manager or DocumentVectorManager()
     
     @property
-    def _parser(self) -> MegaParseClient:
+    def _parser(self) -> UnstructuredDocumentParser:
         """Lazy initialization of parser to avoid import errors at module level"""
         if self._parser_instance is None:
-            self._parser_instance = MegaParseClient()
+            self._parser_instance = UnstructuredDocumentParser()
         return self._parser_instance
 
     async def handle(self, file: UploadFile, db: AsyncSession, user: User) -> ParsedDocument:
@@ -48,7 +48,7 @@ class DocumentUploadPipeline:
         self._ensure_file_size(content_bytes)
         minio_url = await upload_to_s3(content_bytes, filename, user)
 
-        markdown_doc = await self._parse_with_megaparse(
+        markdown_doc = await self._parse_document(
             content_bytes=content_bytes,
             filename=filename,
         )
@@ -101,7 +101,7 @@ class DocumentUploadPipeline:
                 detail="File is too large",
             )
 
-    async def _parse_with_megaparse(
+    async def _parse_document(
         self,
         *,
         content_bytes: bytes,

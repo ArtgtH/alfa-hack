@@ -3,7 +3,7 @@
 The document upload flow now parses, chunks, embeds, and indexes each file for retrieval.
 
 ## Processing Stages
-- **Parsing**: `DocumentUploadPipeline` feeds the raw upload into `MegaParseClient`, which wraps the `megaparse` library to convert binary inputs (PDF, DOC, DOCX, etc.) into markdown plus optional section metadata (`MarkdownDocument`).
+- **Parsing**: `DocumentUploadPipeline` feeds the raw upload into `UnstructuredDocumentParser`, which wraps the `unstructured.partition.auto` pipeline (default `fast` strategy, hi-res only when `UNSTRUCTURED_ENABLE_HI_RES=1` **and** dependencies are present) to convert binary inputs (PDF, DOCX, PPTX, etc.) into Markdown plus optional section metadata (`MarkdownDocument`).
 - **Chunking**: `ChunkSplitter` uses LangChain's `RecursiveCharacterTextSplitter` (configured for markdown separators) to turn the parsed content into ordered `DocumentChunkPayload` entries.
 - **Persistence**: Each payload is stored as a `DocumentChunk` via `DocumentChunkRepository`. The pipeline keeps a `ChunkRecord` pairing the persisted chunk with its metadata.
 - **Vectorization**: `DocumentVectorManager` calls `OpenRouterEmbeddingClient` to embed chunk text. Embeddings are upserted to Qdrant through `QdrantVectorStore`, attaching payload metadata (`document_id`, `chunk_serial`, etc.) for filtered search.

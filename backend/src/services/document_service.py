@@ -16,7 +16,7 @@ MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 # Lazy initialization - pipeline will be created when needed
-# This avoids import errors if megaparse dependencies have conflicts
+# This avoids importing heavy parsing dependencies until they are required
 _document_pipeline: DocumentUploadPipeline | None = None
 vector_manager = DocumentVectorManager()
 
