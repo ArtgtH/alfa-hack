@@ -1,7 +1,5 @@
-import json
 from fastapi import APIRouter, HTTPException
 from starlette import status
-from starlette.responses import StreamingResponse
 
 from db.models import Message, MessageType
 from db.repositories.chat_repo import ChatRepository
@@ -13,6 +11,7 @@ from internal.schemas.chat import (
     ExpandedChatResponse,
     BaseMessage,
     PromptID,
+    MessageResponse,
 )
 from services.rag import RagAgent
 
@@ -68,10 +67,10 @@ async def delete_chat(db: Db, user: CtxUser, chat_id: int) -> None:
     await chat_repo.save(chat)
 
 
-@router.post("/{chat_id}/message")
+@router.post("/{chat_id}/message", response_model=MessageResponse)
 async def create_message(
     db: Db, user: CtxUser, chat_id: int, message_data: BaseMessage
-) -> StreamingResponse:
+) -> MessageResponse:
     chat_repo = ChatRepository(db)
 
     if (
@@ -92,58 +91,21 @@ async def create_message(
     )
     await message_repo.create(user_message)
 
-    async def event_stream():
-        try:
-            result = await agent.run(
-                db=db,
-                user=user,
-                query=user_message.content,
-                chat_id=chat_id,
-                selected_document_ids=user_message.documents_ids or [],
-                answer_instructions=prompt_text,
-            )
-
-            ai_message = Message(
-                content=result.answer,
-                message_type=MessageType.MODEL,
-                chat_id=chat_id,
-                documents_ids=user_message.documents_ids,
-            )
-            await message_repo.create(ai_message)
-
-            citations = []
-            for item in result.used_chunks:
-                payload = item.payload or {}
-                citations.append(
-                    {
-                        "document_id": payload.get("document_id"),
-                        "filename": payload.get("filename"),
-                        "url": payload.get("minio_url")
-                        or (payload.get("document_metadata") or {}).get("minio_url"),
-                        "score": item.score,
-                        "chunk_serial": item.chunk.chunk_serial,
-                    }
-                )
-
-            payload = {
-                "content": result.answer,
-                "scenario": result.scenario,
-                "citations": citations,
-                "debug": result.debug,
-            }
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'done': True})}\n\n"
-        except Exception as exc:  # pragma: no cover - defensive logging via stream
-            error_payload = {"error": str(exc)}
-            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "X-Accel-Buffering": "no",
-        },
+    result = await agent.run(
+        db=db,
+        user=user,
+        query=user_message.content,
+        chat_id=chat_id,
+        selected_document_ids=user_message.documents_ids or [],
+        answer_instructions=prompt_text,
     )
+
+    ai_message = Message(
+        content=result.answer,
+        message_type=MessageType.MODEL,
+        chat_id=chat_id,
+        documents_ids=user_message.documents_ids,
+    )
+    await message_repo.create(ai_message)
+
+    return MessageResponse.model_validate(ai_message)
