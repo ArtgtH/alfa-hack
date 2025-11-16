@@ -84,14 +84,12 @@ class CentralBankClient:
             response = await client.post(self._base_url, content=envelope, headers=headers)
         response.raise_for_status()
         root = ET.fromstring(response.text)
-        ns = {
-            "soap": "http://schemas.xmlsoap.org/soap/envelope/",
-            "web": "http://web.cbr.ru/",
-        }
         rates = []
-        for item in root.findall(".//web:KeyRate", ns):
-            dt_text = item.findtext("web:DT", default="", namespaces=ns)
-            value_text = item.findtext("web:Value", default="", namespaces=ns)
+        for item in self._iter_elements(root, "KR"):
+            dt_text = self._child_text(item, "DT")
+            value_text = self._child_text(item, "Rate") or self._child_text(
+                item, "Value"
+            )
             if not value_text:
                 continue
             rates.append(
@@ -123,18 +121,12 @@ class CentralBankClient:
             response = await client.post(self._base_url, content=envelope, headers=headers)
         response.raise_for_status()
         root = ET.fromstring(response.text)
-        ns = {
-            "soap": "http://schemas.xmlsoap.org/soap/envelope/",
-            "web": "http://web.cbr.ru/",
-        }
-        for item in root.findall(".//web:ValuteCursOnDate", ns):
-            vch_code = item.findtext("web:VchCode", default="", namespaces=ns)
+        for item in self._iter_elements(root, "ValuteCursOnDate"):
+            vch_code = self._child_text(item, "VchCode").upper()
             if vch_code != code:
                 continue
-            value = self._to_float(item.findtext("web:Vcurs", default="", namespaces=ns))
-            nominal = self._to_float(
-                item.findtext("web:Vnom", default="1", namespaces=ns)
-            )
+            value = self._to_float(self._child_text(item, "Vcurs"))
+            nominal = self._to_float(self._child_text(item, "Vnom") or "1")
             return {
                 "currency": code,
                 "value": value / nominal if nominal else value,
@@ -158,6 +150,24 @@ class CentralBankClient:
         if not value:
             return 0.0
         return float(value.replace(",", "."))
+
+    @staticmethod
+    def _local_name(tag: str) -> str:
+        return tag.split("}", 1)[-1] if "}" in tag else tag
+
+    @classmethod
+    def _iter_elements(cls, root, tag: str):
+        target = tag
+        for elem in root.iter():
+            if cls._local_name(elem.tag) == target:
+                yield elem
+
+    @classmethod
+    def _child_text(cls, element, tag: str) -> str:
+        for child in element:
+            if cls._local_name(child.tag) == tag:
+                return child.text or ""
+        return ""
 
     def _stub_response(
         self, mode: str, payload: dict[str, Any], error: str | None = None
