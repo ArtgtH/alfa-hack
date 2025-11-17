@@ -63,11 +63,22 @@ class CentralBankClient:
     async def _fetch_key_rate(self, payload: dict[str, Any]) -> dict[str, Any]:
         import datetime as dt
         import xml.etree.ElementTree as ET
+        import structlog
+        
+        logger = structlog.get_logger(__name__)
 
         to_date = payload.get("date") or dt.date.today().isoformat()
         from_date = payload.get("from_date") or (
             dt.date.fromisoformat(to_date) - dt.timedelta(days=60)
         ).isoformat()
+        
+        logger.info(
+            "cbr-key-rate-request",
+            from_date=from_date,
+            to_date=to_date,
+            base_url=self._base_url
+        )
+        
         envelope = self._build_envelope(
             body=f"""
             <KeyRate xmlns="http://web.cbr.ru/">
@@ -80,11 +91,20 @@ class CentralBankClient:
             "Content-Type": "text/xml; charset=utf-8",
             "SOAPAction": "http://web.cbr.ru/KeyRate",
         }
+        
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(self._base_url, content=envelope, headers=headers)
+        
+        logger.debug(
+            "cbr-response-received",
+            status_code=response.status_code,
+            content_length=len(response.text)
+        )
+        
         response.raise_for_status()
         root = ET.fromstring(response.text)
         rates = []
+        
         for item in self._iter_elements(root, "KR"):
             dt_text = self._child_text(item, "DT")
             value_text = self._child_text(item, "Rate") or self._child_text(
@@ -92,12 +112,27 @@ class CentralBankClient:
             )
             if not value_text:
                 continue
-            rates.append(
-                {
-                    "date": dt_text.split("T")[0] if dt_text else None,
-                    "value": self._to_float(value_text),
-                }
+            
+            parsed_date = dt_text.split("T")[0] if dt_text else None
+            parsed_value = self._to_float(value_text)
+            
+            rates.append({
+                "date": parsed_date,
+                "value": parsed_value,
+            })
+            
+            logger.debug(
+                "cbr-rate-parsed",
+                date=parsed_date,
+                value=parsed_value
             )
+        
+        logger.info(
+            "cbr-key-rate-success",
+            rates_count=len(rates),
+            latest_rate=rates[-1] if rates else None
+        )
+        
         return {"rates": rates}
 
     async def _fetch_currency(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -172,21 +207,40 @@ class CentralBankClient:
     def _stub_response(
         self, mode: str, payload: dict[str, Any], error: str | None = None
     ) -> dict[str, Any]:
+        """
+        Stub response when CBR API is not configured or fails.
+        NOTE: This returns fake data for development only!
+        """
+        import structlog
+        logger = structlog.get_logger(__name__)
+        
+        logger.warning(
+            "cbr-using-stub-data",
+            mode=mode,
+            error=error,
+            message="Using stub data - CBR API not available or failed"
+        )
+        
         if mode == "key_rate":
             return {
-                "value": 0.16,
-                "date": payload.get("date") or "2024-09-15",
+                "rates": [{
+                    "value": 0.21,  # 21% - примерная текущая ставка
+                    "date": payload.get("date") or "2024-11-17",
+                }],
                 "source": "cbr_stub",
                 "error": error,
+                "warning": "Stub data - not real CBR data"
             }
         if mode == "currency":
             currency = payload.get("code") or "USD"
             return {
                 "currency": currency,
-                "value": 92.5,
-                "date": payload.get("date") or "2024-09-15",
+                "value": 100.0,  # Примерный курс
+                "nominal": 1,
+                "date": payload.get("date") or "2024-11-17",
                 "source": "cbr_stub",
                 "error": error,
+                "warning": "Stub data - not real CBR data"
             }
         return {
             "mode": mode,
@@ -212,9 +266,18 @@ class TavilyClient:
         self._cache: dict[str, CachedValue] = {}
 
     async def search(
-        self, *, query: str, max_results: int = 5, search_depth: str = "advanced"
+        self,
+        *,
+        query: str,
+        max_results: int = 5,
+        search_depth: str = "advanced",
+        topic: str | None = None,
+        days: int | None = None,
+        include_domains: list[str] | None = None,
+        exclude_domains: list[str] | None = None,
+        include_answer: bool = False,
     ) -> dict[str, Any]:
-        cache_key = f"{query}:{max_results}:{search_depth}"
+        cache_key = f"{query}:{max_results}:{search_depth}:{topic}:{days}:{include_domains}:{exclude_domains}"
         cached = self._cache.get(cache_key)
         if cached and cached.expires_at > _now_ts():
             return {"status": "ok", "results": cached.value, "cached": True}
@@ -223,7 +286,16 @@ class TavilyClient:
             results = self._stub_results(query, max_results)
         else:
             try:
-                results = await self._call_api(query, max_results, search_depth)
+                results = await self._call_api(
+                    query=query,
+                    max_results=max_results,
+                    search_depth=search_depth,
+                    topic=topic,
+                    days=days,
+                    include_domains=include_domains,
+                    exclude_domains=exclude_domains,
+                    include_answer=include_answer,
+                )
             except Exception as exc:
                 results = self._stub_results(query, max_results)
                 return {"status": "stub", "results": results, "error": str(exc)}
@@ -235,17 +307,38 @@ class TavilyClient:
         return {"status": "ok", "results": results, "cached": False}
 
     async def _call_api(
-        self, query: str, max_results: int, search_depth: str
+        self,
+        *,
+        query: str,
+        max_results: int,
+        search_depth: str,
+        topic: str | None = None,
+        days: int | None = None,
+        include_domains: list[str] | None = None,
+        exclude_domains: list[str] | None = None,
+        include_answer: bool = False,
     ) -> list[dict[str, Any]]:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }
-        payload = {
+        payload: dict[str, Any] = {
             "query": query,
             "max_results": max_results,
             "search_depth": search_depth,
+            "include_answer": include_answer,
         }
+        
+        # Add optional parameters
+        if topic:
+            payload["topic"] = topic
+        if days is not None and days > 0:
+            payload["days"] = days
+        if include_domains:
+            payload["include_domains"] = include_domains
+        if exclude_domains:
+            payload["exclude_domains"] = exclude_domains
+        
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(self._base_url, json=payload, headers=headers)
         response.raise_for_status()
