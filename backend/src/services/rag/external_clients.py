@@ -153,7 +153,9 @@ class CentralBankClient:
             "SOAPAction": "http://web.cbr.ru/GetCursOnDateXML",
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(self._base_url, content=envelope, headers=headers)
+            response = await client.post(
+                self._base_url, content=envelope, headers=headers
+            )
         response.raise_for_status()
         root = ET.fromstring(response.text)
         for item in self._iter_elements(root, "ValuteCursOnDate"):
@@ -360,4 +362,3 @@ class TavilyClient:
 
 
 __all__ = ["CentralBankClient", "TavilyClient"]
-

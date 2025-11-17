@@ -5,9 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Sequence
 
 
-ToolHandler = Callable[
-    ["ToolInvocation", "ToolContext"], Awaitable["ToolResult"]
-]
+ToolHandler = Callable[["ToolInvocation", "ToolContext"], Awaitable["ToolResult"]]
 
 
 @dataclass(slots=True)
@@ -62,9 +60,7 @@ class ToolRegistry:
             defs = self._definitions.values()
         else:
             defs = (
-                self._definitions[name]
-                for name in allowed
-                if name in self._definitions
+                self._definitions[name] for name in allowed if name in self._definitions
             )
         return [definition.to_openai() for definition in defs]
 
@@ -102,4 +98,3 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
 ]
-

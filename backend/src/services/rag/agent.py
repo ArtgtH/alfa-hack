@@ -278,9 +278,9 @@ class RagAgent:
             confidence = float(parsed.get("confidence", 0.5))
             threshold = self._config.orchestrator_confidence_threshold
             scenario = llm_scenario if confidence >= threshold else rule_guess
-            clarifications = [
-                str(item) for item in parsed.get("clarifications", [])
-            ][: self._config.clarifications_limit]
+            clarifications = [str(item) for item in parsed.get("clarifications", [])][
+                : self._config.clarifications_limit
+            ]
             use_qe = parsed.get("use_query_expansion")
             if isinstance(use_qe, str):
                 use_qe = use_qe.lower() in {"true", "1", "yes"}
@@ -1289,9 +1289,7 @@ class RagAgent:
         documents, total_len = await self._load_documents(context.db, document_ids)
         max_chars = invocation.arguments.get("max_chars")
         max_chars = (
-            int(max_chars)
-            if isinstance(max_chars, int)
-            else self._max_context_chars
+            int(max_chars) if isinstance(max_chars, int) else self._max_context_chars
         )
         trimmed_docs: list[dict[str, Any]] = []
         remaining = max_chars
@@ -1475,7 +1473,10 @@ class RagAgent:
                             "enum": ["key_rate", "currency", "news"],
                         },
                         "date": {"type": "string", "description": "Формат YYYY-MM-DD"},
-                        "code": {"type": "string", "description": "ISO 4217 или код ЦБ"},
+                        "code": {
+                            "type": "string",
+                            "description": "ISO 4217 или код ЦБ",
+                        },
                     },
                     "required": ["mode"],
                 },

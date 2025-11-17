@@ -112,4 +112,3 @@ __all__ = [
     "RagPromptSettings",
     "load_rag_agent_settings",
 ]
-
