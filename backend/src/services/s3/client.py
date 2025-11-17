@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 import structlog
@@ -50,7 +50,7 @@ class MinioStorageClient:
             raise RuntimeError("MINIO access credentials are not configured")
 
         self._config = config
-        self._client = Minio(  # type: ignore[arg-type]
+        self._client = Minio(
             config.endpoint,
             access_key=config.access_key,
             secret_key=config.secret_key,
@@ -114,7 +114,7 @@ class MinioStorageClient:
             metadata={k: str(v) for k, v in meta.items()},
         )
 
-        url = self._build_public_url(object_name)
+        url = self._build_browser_url(object_name)
         logger.info(
             "minio-upload-success",
             bucket=self._config.bucket_name,
@@ -158,14 +158,15 @@ class MinioStorageClient:
         )
         return str(object_path)
 
-    def _build_public_url(self, object_name: str) -> str:
-        base = (
-            self._config.public_endpoint.strip() if self._config.public_endpoint else ""
-        )
-        if not base.startswith("http"):
+    def _build_browser_url(self, object_name: str) -> str:
+        base = self._config.public_endpoint.strip()
+        if not base.startswith(("http://", "https://")):
             scheme = "https" if self._config.secure else "http"
             base = f"{scheme}://{base}"
-        return f"{base.rstrip('/')}/{self._config.bucket_name}/{object_name}"
+
+        encoded_object = quote(object_name, safe="")  # safe="" forces encoding of /
+
+        return f"{base.rstrip('/')}/browser/{self._config.bucket_name}/{encoded_object}"
 
 
 class MinioNotConfiguredError(RuntimeError):

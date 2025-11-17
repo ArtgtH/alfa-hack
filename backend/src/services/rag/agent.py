@@ -109,20 +109,24 @@ class RagAgent:
             timeout_seconds=float(settings.TAVILY_TIMEOUT_SECONDS),
             cache_ttl_seconds=int(settings.TAVILY_CACHE_TTL_SECONDS),
         )
-        
+
         # Initialize parallel executor with retry logic
         max_retries = int(getattr(settings, "RAG_MAX_TOOL_RETRIES", 2))
         self._parallel_executor = ParallelToolExecutor(
             registry=self._tool_registry,
             max_retries=max_retries,
         )
-        
+
         # Initialize token-aware context manager
         self._context_manager = TokenAwareContextManager(
             model="anthropic/claude-3.5-sonnet",
             max_tokens=int(getattr(settings, "RAG_TOKEN_BUDGET", 180000)),
-            reserved_for_output=int(getattr(settings, "RAG_RESERVED_OUTPUT_TOKENS", 4000)),
-            reserved_for_system=int(getattr(settings, "RAG_RESERVED_SYSTEM_TOKENS", 2000)),
+            reserved_for_output=int(
+                getattr(settings, "RAG_RESERVED_OUTPUT_TOKENS", 4000)
+            ),
+            reserved_for_system=int(
+                getattr(settings, "RAG_RESERVED_SYSTEM_TOKENS", 2000)
+            ),
         )
 
     async def run(
@@ -189,7 +193,11 @@ class RagAgent:
                 answer=answer, used_chunks=used_chunks, scenario=scenario, debug=debug
             )
 
-        if scenario == 5 or (not allowed_tools and decision.intent != "small_talk" and decision.intent != "off_topic"):
+        if scenario == 5 or (
+            not allowed_tools
+            and decision.intent != "small_talk"
+            and decision.intent != "off_topic"
+        ):
             answer = await self._ask_clarification(
                 query=query, history=history, clarifications=decision.clarifications
             )
@@ -356,9 +364,7 @@ class RagAgent:
             return 3, debug
         return scenario, debug
 
-    def _tools_for_scenario(
-        self, scenario: int, intent: str | None
-    ) -> list[str]:
+    def _tools_for_scenario(self, scenario: int, intent: str | None) -> list[str]:
         """
         Determine which tools the agent should have access to based on scenario and intent.
         Returns empty list for scenarios that don't need tools (predefined responses).
@@ -366,7 +372,7 @@ class RagAgent:
         if scenario == 1:
             # Document search - only user documents
             return ["search_user_documents"]
-        
+
         if scenario == 2:
             # General request - depends on intent (corporate KB, CBR, news, etc.)
             if intent == "small_talk" or intent == "off_topic":
@@ -384,15 +390,15 @@ class RagAgent:
             else:
                 # Fallback: allow corporate knowledge base search
                 return ["search_general_kb"]
-        
+
         if scenario == 3:
             # Full document context
             return ["load_documents_full"]
-        
+
         if scenario == 4:
             # Targeted search in selected documents
             return ["search_user_documents"]
-        
+
         # Scenario 5 (clarification) or unknown
         return []
 
@@ -434,7 +440,7 @@ class RagAgent:
         collected_chunks: list[VectorSearchResult] = []
         tool_debug: list[dict[str, Any]] = []
         max_iterations = 10
-        
+
         # Check if parallel execution is enabled
         enable_parallel = getattr(settings, "RAG_ENABLE_PARALLEL_TOOLS", True)
 
@@ -454,48 +460,127 @@ class RagAgent:
                     "tool_calls": tool_calls,
                 }
             )
-            
+
             if tool_calls:
                 # Use parallel executor if enabled and multiple tools
                 if enable_parallel and len(tool_calls) > 1:
                     logger.info(
                         "using-parallel-execution",
                         tool_count=len(tool_calls),
-                        iteration=iteration + 1
+                        iteration=iteration + 1,
                     )
-                    
+
                     # Analyze dependencies and execute in parallel
-                    executions = self._parallel_executor.analyze_dependencies(tool_calls)
-                    
+                    executions = self._parallel_executor.analyze_dependencies(
+                        tool_calls
+                    )
+
                     try:
                         results = await self._parallel_executor.execute_plan(
                             executions, context
                         )
-                        
+
                         # Process results and add to messages
                         for call in tool_calls:
                             func = call.get("function", {})
                             name = func.get("name")
-                            
+
                             if name in results:
                                 result = results[name]
                                 collected_chunks.extend(result.used_chunks)
-                                
+
                                 # Find matching execution for timing
                                 exec_info = next(
-                                    (e for e in executions if e.tool_name == name),
-                                    None
+                                    (e for e in executions if e.tool_name == name), None
                                 )
-                                
-                                tool_debug.append({
+
+                                tool_debug.append(
+                                    {
+                                        "name": name,
+                                        "arguments": func.get("arguments"),
+                                        "returned_chunks": len(result.used_chunks),
+                                        "duration_ms": round(exec_info.duration_ms, 2)
+                                        if exec_info
+                                        else 0,
+                                        "parallel": True,
+                                    }
+                                )
+
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": call.get("id"),
+                                        "name": name,
+                                        "content": json.dumps(
+                                            result.content,
+                                            ensure_ascii=False,
+                                            default=self._json_default,
+                                        ),
+                                    }
+                                )
+                            else:
+                                # Tool failed - add error message
+                                exec_info = next(
+                                    (e for e in executions if e.tool_name == name), None
+                                )
+                                error_msg = (
+                                    str(exec_info.error)
+                                    if exec_info and exec_info.error
+                                    else "Unknown error"
+                                )
+
+                                tool_debug.append(
+                                    {
+                                        "name": name,
+                                        "arguments": func.get("arguments"),
+                                        "error": error_msg,
+                                        "parallel": True,
+                                    }
+                                )
+
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": call.get("id"),
+                                        "name": name,
+                                        "content": json.dumps(
+                                            {"status": "error", "message": error_msg},
+                                            ensure_ascii=False,
+                                        ),
+                                    }
+                                )
+
+                    except Exception as exc:
+                        logger.error("parallel-execution-failed", error=str(exc))
+                        # Fallback to sequential execution
+                        logger.info("falling-back-to-sequential")
+                        enable_parallel = False  # Disable for rest of this conversation
+                        continue
+
+                else:
+                    # Sequential execution (original logic)
+                    for call in tool_calls:
+                        function = call.get("function") or {}
+                        name = function.get("name")
+                        arguments = function.get("arguments")
+
+                        try:
+                            result = await self._tool_registry.execute(
+                                name=name,
+                                arguments_json=arguments,
+                                context=context,
+                            )
+                            collected_chunks.extend(result.used_chunks)
+                            tool_debug.append(
+                                {
                                     "name": name,
-                                    "arguments": func.get("arguments"),
+                                    "arguments": arguments,
                                     "returned_chunks": len(result.used_chunks),
-                                    "duration_ms": round(exec_info.duration_ms, 2) if exec_info else 0,
-                                    "parallel": True,
-                                })
-                                
-                                messages.append({
+                                    "parallel": False,
+                                }
+                            )
+                            messages.append(
+                                {
                                     "role": "tool",
                                     "tool_call_id": call.get("id"),
                                     "name": name,
@@ -504,88 +589,27 @@ class RagAgent:
                                         ensure_ascii=False,
                                         default=self._json_default,
                                     ),
-                                })
-                            else:
-                                # Tool failed - add error message
-                                exec_info = next(
-                                    (e for e in executions if e.tool_name == name),
-                                    None
-                                )
-                                error_msg = str(exec_info.error) if exec_info and exec_info.error else "Unknown error"
-                                
-                                tool_debug.append({
-                                    "name": name,
-                                    "arguments": func.get("arguments"),
-                                    "error": error_msg,
-                                    "parallel": True,
-                                })
-                                
-                                messages.append({
+                                }
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "tool-execution-error", tool=name, error=str(exc)
+                            )
+                            # Add error as tool result so LLM can handle it
+                            messages.append(
+                                {
                                     "role": "tool",
                                     "tool_call_id": call.get("id"),
                                     "name": name,
                                     "content": json.dumps(
-                                        {"status": "error", "message": error_msg},
+                                        {"status": "error", "message": str(exc)},
                                         ensure_ascii=False,
                                     ),
-                                })
-                    
-                    except Exception as exc:
-                        logger.error("parallel-execution-failed", error=str(exc))
-                        # Fallback to sequential execution
-                        logger.info("falling-back-to-sequential")
-                        enable_parallel = False  # Disable for rest of this conversation
-                        continue
-                
-                else:
-                    # Sequential execution (original logic)
-                    for call in tool_calls:
-                        function = call.get("function") or {}
-                        name = function.get("name")
-                        arguments = function.get("arguments")
-                        
-                        try:
-                            result = await self._tool_registry.execute(
-                                name=name,
-                                arguments_json=arguments,
-                                context=context,
+                                }
                             )
-                            collected_chunks.extend(result.used_chunks)
-                            tool_debug.append({
-                                "name": name,
-                                "arguments": arguments,
-                                "returned_chunks": len(result.used_chunks),
-                                "parallel": False,
-                            })
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": call.get("id"),
-                                "name": name,
-                                "content": json.dumps(
-                                    result.content,
-                                    ensure_ascii=False,
-                                    default=self._json_default,
-                                ),
-                            })
-                        except Exception as exc:
-                            logger.error(
-                                "tool-execution-error",
-                                tool=name,
-                                error=str(exc)
-                            )
-                            # Add error as tool result so LLM can handle it
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": call.get("id"),
-                                "name": name,
-                                "content": json.dumps(
-                                    {"status": "error", "message": str(exc)},
-                                    ensure_ascii=False,
-                                ),
-                            })
-                
+
                 continue
-            
+
             content = message.get("content") or ""
             return content, collected_chunks, tool_debug
 
@@ -620,14 +644,14 @@ class RagAgent:
 
         base = Path(__file__).with_suffix("").parent / "prompt_storage"
         system_prompt = (base / "system_ru.txt").read_text(encoding="utf-8")
-        
+
         # Adaptive guidance based on scenario and intent
         guidance = self._build_guidance_message(
             scenario=scenario,
             intent=intent,
             current_datetime=current_datetime,
         )
-        
+
         # Build user request with clear structure
         user_payload = self._build_user_request(
             scenario=scenario,
@@ -637,10 +661,10 @@ class RagAgent:
             current_datetime=current_datetime,
             instructions=instructions,
         )
-        
+
         # Use token-aware context manager if enabled
         use_token_aware = getattr(settings, "RAG_USE_TOKEN_AWARE_CONTEXT", True)
-        
+
         if use_token_aware:
             messages, stats = self._context_manager.build_optimal_context(
                 system_prompt=system_prompt,
@@ -650,14 +674,14 @@ class RagAgent:
                 chunks=None,  # Chunks are added by tools, not at this stage
                 chunk_weight=0.4,  # More weight to history for tool conversations
             )
-            
+
             logger.debug(
                 "token-aware-context-built",
                 total_tokens=stats.get("total_tokens", 0),
-                utilization=f"{stats.get('utilization', 0)*100:.1f}%",
-                history_count=stats.get("history_count", 0)
+                utilization=f"{stats.get('utilization', 0) * 100:.1f}%",
+                history_count=stats.get("history_count", 0),
             )
-            
+
             return messages
         else:
             # Fallback to original simple truncation
@@ -668,7 +692,7 @@ class RagAgent:
             messages.extend(history[-self._messages_limit :])
             messages.append({"role": "user", "content": user_payload})
             return messages
-    
+
     def _build_guidance_message(
         self, *, scenario: int, intent: str | None, current_datetime: str
     ) -> str:
@@ -681,7 +705,7 @@ class RagAgent:
             "2. Проанализируй полученную информацию\n"
             "3. Сформируй окончательный ответ\n\n"
         )
-        
+
         # Add intent-specific guidance
         intent_guidance = {
             "document_search": "Используй search_user_documents для поиска в документах пользователя.",
@@ -691,14 +715,14 @@ class RagAgent:
             "hybrid_kb_docs": "Используй И search_general_kb, И search_user_documents для полного ответа.",
             "full_docs": "Используй load_documents_full для загрузки полного контекста документов.",
         }
-        
+
         specific = intent_guidance.get(intent or "", "")
         if specific:
             base_guidance += f"{specific}\n\n"
-        
+
         base_guidance += f"Формат ответа:\n{self._answer_format_instructions()}"
         return base_guidance
-    
+
     def _build_user_request(
         self,
         *,
@@ -717,7 +741,7 @@ class RagAgent:
             4: "Целевой поиск в выбранных документах",
             5: "Требуется уточнение",
         }
-        
+
         parts = [
             "=== КОНТЕКСТ ЗАПРОСА ===",
             f"Сценарий: {scenario} - {scenario_descriptions.get(scenario, 'Неизвестно')}",
@@ -731,7 +755,7 @@ class RagAgent:
             "=== ИНСТРУКЦИИ К ОТВЕТУ ===",
             instructions,
         ]
-        
+
         return "\n".join(parts)
 
     async def _load_documents(
@@ -871,19 +895,33 @@ class RagAgent:
         These responses are hardcoded as per system prompt requirements.
         """
         query_lower = query.lower().strip()
-        
+
         if intent == "small_talk":
             # Check for greetings
-            greetings = {"привет", "здравствуй", "добрый день", "добрый вечер", "доброе утро", "hi", "hello"}
+            greetings = {
+                "привет",
+                "здравствуй",
+                "добрый день",
+                "добрый вечер",
+                "доброе утро",
+                "hi",
+                "hello",
+            }
             if any(greeting in query_lower for greeting in greetings):
                 return (
                     "Здравствуйте! Я ваш финансовый ассистент. Могу помочь с анализом документов, "
                     "поиском информации в корпоративной базе знаний, актуальными данными по курсам валют "
                     "и финансовым новостям. Чем могу быть полезен?"
                 )
-            
+
             # Check for identity/capabilities questions
-            identity_triggers = {"кто ты", "что ты", "что ты умеешь", "расскажи о себе", "твои возможности"}
+            identity_triggers = {
+                "кто ты",
+                "что ты",
+                "что ты умеешь",
+                "расскажи о себе",
+                "твои возможности",
+            }
             if any(trigger in query_lower for trigger in identity_triggers):
                 return (
                     "Я — финансовый ассистент вашей компании. Мои возможности:\n"
@@ -893,21 +931,21 @@ class RagAgent:
                     "• Последние финансовые новости\n\n"
                     "Просто задайте вопрос или загрузите документы для анализа."
                 )
-            
+
             # Generic small talk fallback
             return (
                 "Здравствуйте! Я специализируюсь на финансовых и бизнес-вопросах. "
                 "Могу помочь с анализом документов, поиском информации и актуальными данными. "
                 "Чем могу быть полезен?"
             )
-        
+
         elif intent == "off_topic":
             return (
                 "Извините, но я специализируюсь на финансовых и бизнес-вопросах. "
                 "Могу помочь с анализом документов, финансовой информацией, данными по рынку "
                 "и корпоративной базой знаний. Пожалуйста, задайте вопрос в этой области."
             )
-        
+
         # Fallback
         return "Пожалуйста, уточните ваш вопрос."
 
@@ -1365,10 +1403,10 @@ class RagAgent:
         query = invocation.arguments.get("query")
         if not isinstance(query, str) or not query.strip():
             raise ValueError("query is required for fetch_finance_news")
-        
+
         max_results = invocation.arguments.get("max_results")
         days = invocation.arguments.get("days")
-        
+
         # Don't filter by domains - let Tavily find best sources
         # Russian sources don't work well with include_domains filtering
         response = await self._tavily_client.search(
@@ -1446,13 +1484,13 @@ class RagAgent:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Поисковый запрос для корпоративной базы знаний"
+                            "description": "Поисковый запрос для корпоративной базы знаний",
                         },
                         "limit": {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 10,
-                            "description": "Максимум результатов (по умолчанию 5)"
+                            "description": "Максимум результатов (по умолчанию 5)",
                         },
                     },
                     "required": ["query"],
@@ -1495,20 +1533,20 @@ class RagAgent:
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Поисковый запрос для финансовых новостей"
+                            "description": "Поисковый запрос для финансовых новостей",
                         },
                         "max_results": {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 10,
                             "default": 5,
-                            "description": "Количество новостей для возврата"
+                            "description": "Количество новостей для возврата",
                         },
                         "days": {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 30,
-                            "description": "Искать новости за последние N дней (опционально)"
+                            "description": "Искать новости за последние N дней (опционально)",
                         },
                     },
                     "required": ["query"],

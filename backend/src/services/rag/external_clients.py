@@ -64,21 +64,22 @@ class CentralBankClient:
         import datetime as dt
         import xml.etree.ElementTree as ET
         import structlog
-        
+
         logger = structlog.get_logger(__name__)
 
         to_date = payload.get("date") or dt.date.today().isoformat()
-        from_date = payload.get("from_date") or (
-            dt.date.fromisoformat(to_date) - dt.timedelta(days=60)
-        ).isoformat()
-        
+        from_date = (
+            payload.get("from_date")
+            or (dt.date.fromisoformat(to_date) - dt.timedelta(days=60)).isoformat()
+        )
+
         logger.info(
             "cbr-key-rate-request",
             from_date=from_date,
             to_date=to_date,
-            base_url=self._base_url
+            base_url=self._base_url,
         )
-        
+
         envelope = self._build_envelope(
             body=f"""
             <KeyRate xmlns="http://web.cbr.ru/">
@@ -91,20 +92,22 @@ class CentralBankClient:
             "Content-Type": "text/xml; charset=utf-8",
             "SOAPAction": "http://web.cbr.ru/KeyRate",
         }
-        
+
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(self._base_url, content=envelope, headers=headers)
-        
+            response = await client.post(
+                self._base_url, content=envelope, headers=headers
+            )
+
         logger.debug(
             "cbr-response-received",
             status_code=response.status_code,
-            content_length=len(response.text)
+            content_length=len(response.text),
         )
-        
+
         response.raise_for_status()
         root = ET.fromstring(response.text)
         rates = []
-        
+
         for item in self._iter_elements(root, "KR"):
             dt_text = self._child_text(item, "DT")
             value_text = self._child_text(item, "Rate") or self._child_text(
@@ -112,27 +115,25 @@ class CentralBankClient:
             )
             if not value_text:
                 continue
-            
+
             parsed_date = dt_text.split("T")[0] if dt_text else None
             parsed_value = self._to_float(value_text)
-            
-            rates.append({
-                "date": parsed_date,
-                "value": parsed_value,
-            })
-            
-            logger.debug(
-                "cbr-rate-parsed",
-                date=parsed_date,
-                value=parsed_value
+
+            rates.append(
+                {
+                    "date": parsed_date,
+                    "value": parsed_value,
+                }
             )
-        
+
+            logger.debug("cbr-rate-parsed", date=parsed_date, value=parsed_value)
+
         logger.info(
             "cbr-key-rate-success",
             rates_count=len(rates),
-            latest_rate=rates[-1] if rates else None
+            latest_rate=rates[-1] if rates else None,
         )
-        
+
         return {"rates": rates}
 
     async def _fetch_currency(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -214,24 +215,27 @@ class CentralBankClient:
         NOTE: This returns fake data for development only!
         """
         import structlog
+
         logger = structlog.get_logger(__name__)
-        
+
         logger.warning(
             "cbr-using-stub-data",
             mode=mode,
             error=error,
-            message="Using stub data - CBR API not available or failed"
+            message="Using stub data - CBR API not available or failed",
         )
-        
+
         if mode == "key_rate":
             return {
-                "rates": [{
-                    "value": 0.21,  # 21% - примерная текущая ставка
-                    "date": payload.get("date") or "2024-11-17",
-                }],
+                "rates": [
+                    {
+                        "value": 0.21,  # 21% - примерная текущая ставка
+                        "date": payload.get("date") or "2024-11-17",
+                    }
+                ],
                 "source": "cbr_stub",
                 "error": error,
-                "warning": "Stub data - not real CBR data"
+                "warning": "Stub data - not real CBR data",
             }
         if mode == "currency":
             currency = payload.get("code") or "USD"
@@ -242,7 +246,7 @@ class CentralBankClient:
                 "date": payload.get("date") or "2024-11-17",
                 "source": "cbr_stub",
                 "error": error,
-                "warning": "Stub data - not real CBR data"
+                "warning": "Stub data - not real CBR data",
             }
         return {
             "mode": mode,
@@ -330,7 +334,7 @@ class TavilyClient:
             "search_depth": search_depth,
             "include_answer": include_answer,
         }
-        
+
         # Add optional parameters
         if topic:
             payload["topic"] = topic
@@ -340,7 +344,7 @@ class TavilyClient:
             payload["include_domains"] = include_domains
         if exclude_domains:
             payload["exclude_domains"] = exclude_domains
-        
+
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             response = await client.post(self._base_url, json=payload, headers=headers)
         response.raise_for_status()
