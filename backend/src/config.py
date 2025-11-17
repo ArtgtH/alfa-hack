@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     ADD_BASE_ADMIN: bool = False
 
     OPENROUTER_API_KEY: str | None = (
-        "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"
+        "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"
     )
     OPENROUTER_EMBED_MODEL: str = "qwen/qwen3-embedding-8b"
     OPENROUTER_EMBED_URL: str | None = None
